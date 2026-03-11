@@ -14,6 +14,9 @@ def _get_slack_client() -> WebClient:
 
 
 def get_user_slack_channels(user_email: str) -> list[str]:
+    if not settings.SLACK_BOT_TOKEN:
+        return []
+
     now = time.time()
     cached = _channel_cache.get(user_email)
     if cached and (now - cached[1]) < _CACHE_TTL:

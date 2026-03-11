@@ -15,8 +15,12 @@ class Settings(BaseSettings):
     CLICKUP_API_KEY: str = ""
     CLICKUP_TEAM_ID: str = ""
 
-    GOOGLE_CREDENTIALS_PATH: str = "./google_credentials.json"
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_TRANSCRIPTS_FOLDER_ID: str = ""
+
+    OPENROUTER_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
 
     CLERK_SECRET_KEY: str = ""
 

@@ -1,5 +1,7 @@
 .env
 google_credentials.json
+google_token.json
+celerybeat-schedule*
 __pycache__/
 *.pyc
 venv/

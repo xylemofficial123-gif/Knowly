@@ -29,6 +29,7 @@ def chunk_and_store(
     acl: list,
     title: str = "",
     slack_user_id: str = "",
+    extra_metadata: dict = None,
 ):
     db: Session = SessionLocal()
     try:
@@ -77,6 +78,8 @@ def chunk_and_store(
                 "entities": entities,
                 "title": title,
             }
+            if extra_metadata:
+                payload.update(extra_metadata)
             upsert_chunk(embedding_id, chunk_text, payload)
 
             chunk = Chunk(

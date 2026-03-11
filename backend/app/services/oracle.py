@@ -6,7 +6,6 @@ import re
 from collections import Counter
 
 import redis
-import anthropic
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -14,11 +13,11 @@ from app.core.database import SessionLocal
 from app.core.acl import user_can_see_chunk
 from app.models import AuditLog, Document
 from app.services.embeddings import embed_text, search_chunks
+from app.services.llm import generate
 
 logger = logging.getLogger(__name__)
 
 redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 ORACLE_PROMPT = """You are the Knowledge Oracle for a startup. Answer questions about the company's history,
 decisions, and rationale using ONLY the provided source documents.
@@ -122,12 +121,7 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
 
     prompt = ORACLE_PROMPT.format(question=question, sources=sources_text)
 
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    answer_text = response.content[0].text
+    answer_text = generate(prompt)
 
     citations = []
     used_sources = set(re.findall(r"\[SOURCE_(\d+)\]", answer_text))

@@ -2,20 +2,19 @@ import logging
 import json
 import datetime
 
-import anthropic
 from slack_sdk import WebClient
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import DecisionRecord, Chunk
+from app.services.llm import generate
 
 logger = logging.getLogger(__name__)
 
 
 def send_ghost_doc_prompt(slack_user_id: str, decision: dict, chunk_id: str, source_url: str):
     client = WebClient(token=settings.SLACK_BOT_TOKEN)
-    anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     prompt = f"""Write a brief Slack message asking someone to confirm if this is an official decision that should be recorded.
 
@@ -25,12 +24,7 @@ Rationale: {decision.get('rationale', 'Not specified')}
 Keep it to 2 sentences. Be conversational."""
 
     try:
-        response = anthropic_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        intro_text = response.content[0].text
+        intro_text = generate(prompt)
     except Exception:
         intro_text = "It looks like a decision was made. Should we record it officially?"
 

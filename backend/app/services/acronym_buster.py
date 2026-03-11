@@ -1,9 +1,8 @@
 import logging
 
-import anthropic
-
 from app.core.config import settings
 from app.services.embeddings import embed_text, search_chunks
+from app.services.llm import generate
 
 logger = logging.getLogger(__name__)
 
@@ -46,18 +45,9 @@ def bust_acronym(term: str) -> str:
 
         context = "\n".join(r.payload.get("text_preview", "") for r in results[:3])
 
-        anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-        response = anthropic_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=150,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Based on this company context, define '{term}' in one sentence.\n\nContext:\n{context}\n\nDefinition:",
-                }
-            ],
-        )
-        definition = response.content[0].text.strip()
+        definition = generate(
+            f"Based on this company context, define '{term}' in one sentence.\n\nContext:\n{context}\n\nDefinition:"
+        ).strip()
         return f"*{upper_term}*: {definition}"
 
     except Exception as e:

@@ -2,39 +2,37 @@ import json
 import logging
 import datetime
 
-import anthropic
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import Chunk, DecisionRecord
 from app.models.review_queue import ReviewQueueItem
+from app.services.llm import generate
 
 logger = logging.getLogger(__name__)
-
-anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 DECISION_EXTRACTION_PROMPT = """You are an expert at identifying decisions in workplace communication.
 
 EXPLICIT DECISIONS: "We decided to...", "Going with X because...", "Final call: Y", "Agreed: Z"
-IMPLICIT DECISIONS: proposal + agreement emoji (👍 ✅ +1), "yeah/agreed/sounds good/lgtm" after a suggestion,
+IMPLICIT DECISIONS: proposal + agreement emoji, "yeah/agreed/sounds good/lgtm" after a suggestion,
                     a debate that ends with one position adopted, someone acting on a suggestion
 
 For each decision found, return JSON:
-{
+{{
   "decisions": [
-    {
+    {{
       "decision": "one clear sentence of what was decided",
       "rationale": "reasons given or implied",
       "options_considered": ["alternative 1", "alternative 2"],
       "confidence": 0.0-1.0,
       "decision_type": "explicit" or "implicit",
       "trigger_phrase": "exact words or emoji that signal the decision"
-    }
+    }}
   ]
-}
+}}
 
-If no decisions: {"decisions": []}
+If no decisions: {{"decisions": []}}
 Return ONLY valid JSON. No explanation. No markdown fences.
 
 Text: {text}"""
@@ -47,12 +45,7 @@ def extract_decisions_from_text(text: str) -> list[dict]:
     prompt = DECISION_EXTRACTION_PROMPT.format(text=text)
 
     try:
-        response = anthropic_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.content[0].text.strip()
+        raw = generate(prompt).strip()
 
         if raw.startswith("```"):
             raw = raw.split("```")[1]

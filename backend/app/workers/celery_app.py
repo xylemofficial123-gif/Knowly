@@ -28,12 +28,12 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.sync_clickup",
         "schedule": 3600,
     },
-    "daily-meet-sync": {
+    "meet-sync-every-30min": {
         "task": "app.workers.tasks.sync_meet_transcripts",
-        "schedule": 86400,
+        "schedule": 1800,
     },
-    "daily-drive-sync": {
+    "drive-sync-every-30min": {
         "task": "app.workers.tasks.sync_drive",
-        "schedule": 86400,
+        "schedule": 1800,
     },
 }

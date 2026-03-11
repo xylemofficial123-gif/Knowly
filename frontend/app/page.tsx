@@ -40,7 +40,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          user_email: "demo@yourcompany.com",
+          user_email: "sachin.kurup@seedlinglabs.com",
         }),
       });
 

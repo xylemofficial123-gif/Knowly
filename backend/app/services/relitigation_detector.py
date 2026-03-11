@@ -68,10 +68,9 @@ def find_similar_decisions(message_text: str) -> list[dict]:
 
 def send_relitigation_alert(slack_user_id: str, message_text: str, matches: list[dict]):
     from slack_sdk import WebClient
-    import anthropic
+    from app.services.llm import generate
 
     client = WebClient(token=settings.SLACK_BOT_TOKEN)
-    anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     for match in matches[:3]:
         prompt = f"""Write a brief, friendly Slack DM alerting someone that they may be re-discussing a settled decision.
@@ -83,12 +82,7 @@ Date decided: {match['decided_at']}
 Keep it to 2-3 sentences. Be helpful, not condescending. Include the original decision and rationale."""
 
         try:
-            response = anthropic_client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=300,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            alert_text = response.content[0].text
+            alert_text = generate(prompt)
 
             client.chat_postMessage(
                 channel=slack_user_id,
