@@ -54,7 +54,7 @@ def embed_text(text: str) -> list[float]:
 
 def upsert_chunk(chunk_id: str, text: str, payload: dict):
     vector = embed_text(text)
-    payload["text_preview"] = text[:500]
+    payload["text_preview"] = text[:2000]
     qdrant.upsert(
         collection_name=COLLECTION,
         points=[PointStruct(id=chunk_id, vector=vector, payload=payload)],

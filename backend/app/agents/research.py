@@ -97,6 +97,17 @@ class ResearchAgent(BaseAgent):
                     seen_chunk_ids.add(chunk_id)
                     all_candidates.append((i, query, r))
 
+        # Phase 1.5: Source-type boosting — prefer transcript content over calendar stubs
+        # for queries about meeting content (what was discussed, speakers, decisions)
+        if context.query_type in ("meeting_summary", "timeline", "multi_hop", "action_items"):
+            for i, q, r in all_candidates:
+                source = r.payload.get("source", "")
+                if source == "meet":
+                    r.score *= 1.3  # Boost transcripts
+                elif source == "calendar":
+                    r.score *= 0.5  # Penalize calendar stubs (they lack content)
+            all_candidates.sort(key=lambda x: x[2].score, reverse=True)
+
         # Phase 2: For meeting queries with recency — isolate the most recent meeting
         # across ALL collected results (not per-query)
         if needs_recency and context.query_type in ("meeting_summary", "timeline") and not topic_filter_enabled:

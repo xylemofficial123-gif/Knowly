@@ -93,7 +93,8 @@ FastAPI Backend
 | Re-litigation detection | DONE | Cosine similarity ≥0.82 against active decisions |
 | Ghost documentation | DONE | Detects informal decisions, prompts users to confirm |
 | IST timestamps | DONE | All dates/times in DD/MM/YYYY IST (GMT+5:30) via `app/core/timezone.py` |
-| Speaker attribution | DONE | Meeting summaries attribute statements to specific people (who said what) |
+| Speaker attribution | DONE | Meeting summaries attribute statements to specific people (who said what). LLM extracts `raised_by`, `assigned_by`, `other_contributors` per discussion point. |
+| Source-type boosting | DONE | Meet/transcript chunks boosted 1.3x, calendar chunks penalized 0.5x for meeting content queries |
 | Acronym buster | DONE | Glossary + AI-powered term lookup |
 | Cross-source redundancy prevention | NOT STARTED | Guardian Agent feature (see Goals section) |
 
@@ -336,6 +337,10 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-03-12 | Fix: speaker attribution in meeting summaries (discussion_points with raised_by) |
+| 2026-03-12 | Fix: source-type boosting (meet > calendar for content queries) |
+| 2026-03-12 | Fix: text_preview increased from 500 to 2000 chars (transcript content no longer truncated) |
+| 2026-03-12 | PROJECT_STATUS.md created as living project tracker |
 | 2026-03-12 | Google Calendar integration (sync + Celery task + API endpoint) |
 | 2026-03-12 | Groq added to LLM fallback chain (14,400 req/day free) |
 | 2026-03-12 | Multi-turn conversation (session IDs, history in prompts) |

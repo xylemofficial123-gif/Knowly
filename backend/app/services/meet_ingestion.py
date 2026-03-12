@@ -13,17 +13,26 @@ MEETING_SUMMARY_PROMPT = """You are an expert meeting analyst. Analyze this meet
 Return ONLY valid JSON with this structure:
 {{
   "summary": "2-4 sentence overview of the meeting",
+  "discussion_points": [
+    {{
+      "topic": "what was discussed",
+      "raised_by": "person who raised/mentioned it (use their name, not email)",
+      "details": "what they said or the key points discussed",
+      "other_contributors": ["names of others who responded or contributed to this point"]
+    }}
+  ],
   "key_decisions": [
     {{
       "decision": "what was decided",
-      "who": "person who made/owns it",
+      "who": "person who made/owns it (use their name)",
       "context": "brief context"
     }}
   ],
   "action_items": [
     {{
       "task": "what needs to be done",
-      "assigned_to": "person responsible (or 'Unassigned')",
+      "assigned_to": "person responsible (use their name, or 'Unassigned')",
+      "assigned_by": "person who assigned it (use their name)",
       "deadline": "any mentioned deadline or 'Not specified'",
       "priority": "high/medium/low"
     }}
@@ -43,8 +52,11 @@ Return ONLY valid JSON with this structure:
 }}
 
 Important:
+- SPEAKER ATTRIBUTION IS CRITICAL: For every discussion point, decision, and action item, you MUST attribute it to the person who said/raised/decided it. Use their first name or full name, never just their email.
+- If the transcript has speaker labels (e.g., "Sachin:", "Manjula:"), use those names directly.
+- If the notes mention someone by name in context (e.g., "Krithin explained that..."), capture that attribution.
 - Mark action items as "high" priority if they involve rescheduling, blocking issues, or deadlines
-- Extract WHO is responsible for each action item
+- Extract WHO is responsible for each action item AND who assigned it
 - If someone says "let's push this to tomorrow" or "we'll do this next week", that's an action item
 - Return ONLY valid JSON. No markdown fences. No explanation.
 
@@ -167,6 +179,23 @@ def _build_enriched_text(original_text: str, title: str, summary_data: dict) -> 
     parts.append("=== MEETING SUMMARY ===")
     parts.append(summary_data.get("summary", ""))
     parts.append("")
+
+    # Discussion points (with speaker attribution)
+    discussions = summary_data.get("discussion_points", [])
+    if discussions:
+        parts.append("=== DISCUSSION POINTS ===")
+        for dp in discussions:
+            raised_by = dp.get("raised_by", "")
+            topic = dp.get("topic", "")
+            details = dp.get("details", "")
+            contributors = dp.get("other_contributors", [])
+            line = f"- {raised_by} raised: {topic}" if raised_by else f"- {topic}"
+            if details:
+                line += f" — {details}"
+            if contributors:
+                line += f" (also: {', '.join(contributors)})"
+            parts.append(line)
+        parts.append("")
 
     # Key decisions
     decisions = summary_data.get("key_decisions", [])
