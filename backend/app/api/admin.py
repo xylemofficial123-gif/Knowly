@@ -92,10 +92,31 @@ def approve_review(item_id: str):
             decided_at=item.created_at or datetime.datetime.utcnow(),
         )
         db.add(record)
+        db.flush()
+
+        # Check if this reverses an existing decision
+        from app.services.decision_extractor import check_decision_reversal
+        reversed_decision = check_decision_reversal(item.proposed_decision, db)
+        reversal_info = None
+        if reversed_decision:
+            reversed_decision.status = "superseded"
+            reversed_decision.superseded_by = record.id
+            reversed_decision.superseded_at = datetime.datetime.utcnow()
+            reversed_decision.reversal_reason = (
+                f"Superseded by new decision: {item.proposed_decision[:200]}"
+            )
+            reversal_info = {
+                "reversed_decision_id": str(reversed_decision.id),
+                "reversed_decision": reversed_decision.decision,
+            }
+
         item.status = "approved"
         db.commit()
 
-        return {"status": "approved", "decision_id": str(record.id)}
+        result = {"status": "approved", "decision_id": str(record.id)}
+        if reversal_info:
+            result["reversal"] = reversal_info
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -215,6 +236,156 @@ def get_feedback(limit: int = 50):
             ],
             "total": db.query(AnswerFeedback).count(),
         }
+    finally:
+        db.close()
+
+
+# --- Decisions ---
+
+@router.get("/decisions")
+def get_decisions(status: str = "all", limit: int = 50):
+    """List decisions with reversal chain info."""
+    db = SessionLocal()
+    try:
+        query = db.query(DecisionRecord).order_by(DecisionRecord.decided_at.desc())
+        if status != "all":
+            query = query.filter(DecisionRecord.status == status)
+        decisions = query.limit(limit).all()
+
+        return {
+            "items": [
+                {
+                    "id": str(d.id),
+                    "decision": d.decision or "",
+                    "rationale": d.rationale or "",
+                    "status": d.status or "active",
+                    "decided_at": d.decided_at.isoformat() if d.decided_at else "",
+                    "created_at": d.created_at.isoformat() if d.created_at else "",
+                    "superseded_by": str(d.superseded_by) if d.superseded_by else None,
+                    "superseded_at": d.superseded_at.isoformat() if d.superseded_at else None,
+                    "reversal_reason": d.reversal_reason or None,
+                }
+                for d in decisions
+            ],
+            "total_active": db.query(DecisionRecord).filter(DecisionRecord.status == "active").count(),
+            "total_superseded": db.query(DecisionRecord).filter(DecisionRecord.status == "superseded").count(),
+        }
+    finally:
+        db.close()
+
+
+@router.get("/decisions/{decision_id}/history")
+def get_decision_history(decision_id: str):
+    """Get full reversal chain for a decision (both predecessors and successors)."""
+    db = SessionLocal()
+    try:
+        decision = db.query(DecisionRecord).filter(DecisionRecord.id == decision_id).first()
+        if not decision:
+            raise HTTPException(status_code=404, detail="Decision not found")
+
+        chain = []
+
+        # Walk backwards — find what this decision superseded
+        current = decision
+        predecessors = []
+        visited = {str(current.id)}
+        while True:
+            # Find the decision that this one superseded
+            predecessor = (
+                db.query(DecisionRecord)
+                .filter(DecisionRecord.superseded_by == current.id)
+                .first()
+            )
+            if not predecessor or str(predecessor.id) in visited:
+                break
+            visited.add(str(predecessor.id))
+            predecessors.append(predecessor)
+            current = predecessor
+
+        # Walk forwards — find what superseded this decision
+        current = decision
+        successors = []
+        while current.superseded_by and str(current.superseded_by) not in visited:
+            visited.add(str(current.superseded_by))
+            successor = db.query(DecisionRecord).filter(
+                DecisionRecord.id == current.superseded_by
+            ).first()
+            if not successor:
+                break
+            successors.append(successor)
+            current = successor
+
+        # Build timeline: oldest first
+        chain = list(reversed(predecessors)) + [decision] + successors
+
+        return {
+            "decision_id": decision_id,
+            "chain": [
+                {
+                    "id": str(d.id),
+                    "decision": d.decision or "",
+                    "rationale": d.rationale or "",
+                    "status": d.status or "",
+                    "decided_at": d.decided_at.isoformat() if d.decided_at else "",
+                    "superseded_at": d.superseded_at.isoformat() if d.superseded_at else None,
+                    "reversal_reason": d.reversal_reason or None,
+                    "is_current": d.status == "active",
+                }
+                for d in chain
+            ],
+        }
+    finally:
+        db.close()
+
+
+class ReversalRequest(BaseModel):
+    new_decision: str
+    rationale: str
+    reason: str = ""
+
+
+@router.post("/decisions/{decision_id}/reverse")
+def reverse_decision(decision_id: str, req: ReversalRequest):
+    """Manually reverse a decision — creates a new active decision and marks the old one as superseded."""
+    db = SessionLocal()
+    try:
+        old_decision = db.query(DecisionRecord).filter(DecisionRecord.id == decision_id).first()
+        if not old_decision:
+            raise HTTPException(status_code=404, detail="Decision not found")
+        if old_decision.status != "active":
+            raise HTTPException(status_code=400, detail=f"Decision is already {old_decision.status}")
+
+        # Create new decision
+        new_record = DecisionRecord(
+            decision=req.new_decision,
+            rationale=req.rationale,
+            options_considered=[old_decision.decision],
+            status="active",
+            source_chunk_ids=old_decision.source_chunk_ids or [],
+            participants=old_decision.participants or [],
+            decided_at=datetime.datetime.utcnow(),
+        )
+        db.add(new_record)
+        db.flush()
+
+        # Supersede old decision
+        old_decision.status = "superseded"
+        old_decision.superseded_by = new_record.id
+        old_decision.superseded_at = datetime.datetime.utcnow()
+        old_decision.reversal_reason = req.reason or f"Reversed: {req.new_decision[:200]}"
+
+        db.commit()
+        return {
+            "status": "reversed",
+            "old_decision_id": str(old_decision.id),
+            "new_decision_id": str(new_record.id),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Decision reversal failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

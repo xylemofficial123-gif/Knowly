@@ -9,6 +9,7 @@ from app.core.database import SessionLocal
 from app.models import Chunk, DecisionRecord
 from app.models.review_queue import ReviewQueueItem
 from app.services.llm import generate
+from app.services.embeddings import embed_text
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,63 @@ def extract_decisions_from_text(text: str) -> list[dict]:
         return []
 
 
+def check_decision_reversal(new_decision_text: str, db: Session) -> DecisionRecord | None:
+    """Check if a new decision contradicts an existing active decision.
+
+    Uses semantic similarity (≥0.80) + LLM confirmation to detect reversals.
+    Returns the superseded decision if found, None otherwise.
+    """
+    query_vector = embed_text(new_decision_text)
+
+    active_decisions = (
+        db.query(DecisionRecord)
+        .filter(DecisionRecord.status == "active")
+        .all()
+    )
+
+    if not active_decisions:
+        return None
+
+    # Find semantically similar active decisions
+    candidates = []
+    for d in active_decisions:
+        d_vec = embed_text(d.decision)
+        dot = sum(a * b for a, b in zip(query_vector, d_vec))
+        norm_q = sum(a * a for a in query_vector) ** 0.5
+        norm_d = sum(a * a for a in d_vec) ** 0.5
+        if norm_q > 0 and norm_d > 0:
+            sim = dot / (norm_q * norm_d)
+            if sim >= 0.80:
+                candidates.append((d, sim))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    top_match, top_sim = candidates[0]
+
+    # LLM confirmation: is this actually a reversal or just a related decision?
+    confirm_prompt = (
+        f"Does the NEW decision contradict or reverse the OLD decision? "
+        f"Answer ONLY 'yes' or 'no'.\n\n"
+        f"OLD decision: {top_match.decision}\n"
+        f"NEW decision: {new_decision_text}\n\n"
+        f"Answer:"
+    )
+    try:
+        answer = generate(confirm_prompt, max_tokens=8).strip().lower()
+        if "yes" in answer:
+            logger.info(
+                f"Reversal detected (sim={top_sim:.3f}): "
+                f"'{new_decision_text[:60]}' reverses '{top_match.decision[:60]}'"
+            )
+            return top_match
+    except Exception as e:
+        logger.warning(f"Reversal LLM check failed: {e}")
+
+    return None
+
+
 def process_decision(decision: dict, chunk: Chunk, db: Session):
     confidence = decision.get("confidence", 0)
 
@@ -74,6 +132,21 @@ def process_decision(decision: dict, chunk: Chunk, db: Session):
             decided_at=chunk.created_at or datetime.datetime.utcnow(),
         )
         db.add(record)
+        db.flush()  # Get record.id before reversal check
+
+        # Check if this new decision reverses an existing one
+        reversed_decision = check_decision_reversal(decision["decision"], db)
+        if reversed_decision:
+            reversed_decision.status = "superseded"
+            reversed_decision.superseded_by = record.id
+            reversed_decision.superseded_at = datetime.datetime.utcnow()
+            reversed_decision.reversal_reason = (
+                f"Superseded by new decision: {decision['decision'][:200]}"
+            )
+            logger.info(
+                f"Marked decision {reversed_decision.id} as superseded by {record.id}"
+            )
+
         logger.info(f"Saved DecisionRecord: {decision['decision'][:60]}...")
         return "decision_record"
 

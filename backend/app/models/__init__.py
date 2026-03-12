@@ -40,11 +40,15 @@ class DecisionRecord(Base):
     decision = Column(Text)
     rationale = Column(Text)
     options_considered = Column(JSON, default=list)
-    status = Column(String, default="active")
+    status = Column(String, default="active")  # active, superseded
     source_chunk_ids = Column(JSON, default=list)
     participants = Column(JSON, default=list)
     decided_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    # Decision reversal tracking
+    superseded_by = Column(UUID(as_uuid=True), ForeignKey("decision_records.id"), nullable=True)
+    superseded_at = Column(DateTime, nullable=True)
+    reversal_reason = Column(Text, nullable=True)
 
 
 class AuditLog(Base):

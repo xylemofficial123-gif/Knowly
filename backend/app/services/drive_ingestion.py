@@ -173,6 +173,34 @@ def list_drive_files(folder_id: str = None, max_results: int = 500) -> list[dict
     return results
 
 
+def _get_file_permissions(service, file_id: str) -> list[str]:
+    """Fetch the real permission list for a Drive file.
+
+    Returns a list of email addresses who have access.
+    Falls back to ["public"] if permissions can't be fetched
+    or if the file is shared with 'anyone' (link sharing on).
+    """
+    try:
+        resp = service.permissions().list(
+            fileId=file_id,
+            fields="permissions(emailAddress, type, role)",
+        ).execute()
+
+        emails = []
+        for p in resp.get("permissions", []):
+            # If shared with "anyone" or "domain", treat as public
+            if p.get("type") in ("anyone", "domain"):
+                return ["public"]
+            email = p.get("emailAddress")
+            if email:
+                emails.append(email)
+
+        return emails if emails else ["public"]
+    except Exception as e:
+        logger.debug(f"Could not fetch permissions for {file_id}: {e}")
+        return ["public"]
+
+
 def _get_revision_history(service, file_id: str, max_revisions: int = 20) -> list[dict]:
     """Fetch recent revision history for a file."""
     try:
@@ -259,7 +287,8 @@ def ingest_drive_file(file_info: dict) -> bool:
         "revision_history": revision_history[-10:],
     }
 
-    acl = ["public"]
+    # Fetch real permissions from Drive API
+    acl = _get_file_permissions(service, file_id)
 
     chunk_and_store(
         source="drive",

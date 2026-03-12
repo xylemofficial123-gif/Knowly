@@ -102,7 +102,7 @@ FastAPI Backend
 | Drift detection | NOT STARTED | Flag when actions (ClickUp tasks, code) contradict recorded decisions. Notify relevant leads. |
 | No-index zones | NOT STARTED | Ability to mark Slack channels or Drive folders as excluded from ingestion (HR, M&A, personal). |
 | User feedback on answers | DONE | Thumbs up/down on every Oracle answer. Stored in `answer_feedback` table. Viewable in admin Feedback tab. **Feedback-driven learning**: chunks used in helpful answers get score boost (+0.02), not helpful get penalty (-0.02), clamped to [-0.2, 0.2]. Applied during search re-ranking. |
-| Decision reversal tracking | NOT STARTED | When a decision is reversed, link old → new, update "current state" while preserving history. Living history. |
+| Decision reversal tracking | DONE | `superseded_by`, `superseded_at`, `reversal_reason` fields on DecisionRecord. Auto-detection via semantic similarity + LLM confirmation during extraction/approval. Manual reversal via admin API. Full chain history. Agents surface reversal timeline in answers. |
 | Success metrics dashboard | DONE | Admin Metrics tab: total queries, daily usage chart, avg confidence, avg response time, agent/query type breakdown, feedback helpfulness rate. |
 
 ### Frontend
@@ -229,7 +229,7 @@ User action (Slack message / ClickUp task / Drive doc edit)
 **Future options**:
 - **Simple (sufficient for now)**: Email-based ACL across all sources. Slack user ID → email mapping.
 - **Role-based (later if needed)**: GreytHR API integration to pull org structure (manager → reports chain). Managers see their reports' content.
-- **Drive permissions**: Call Drive Permissions API per file to get exact access list (currently all Drive files are ACL `["public"]`)
+- **Drive permissions**: Drive Permissions API per file → real ACL with email addresses. Files with link sharing → `["public"]`, restricted files → list of emails with access.
 
 **Decision**: Email-based ACL is sufficient for current team size. Revisit when departments need data isolation.
 
@@ -275,14 +275,9 @@ User action (Slack message / ClickUp task / Drive doc edit)
 - Analytics: surface low-rated answers in admin panel for review
 - Future: use feedback to fine-tune retrieval (boost chunks from good answers, penalize from bad)
 
-### Priority 11 — Decision Reversal Tracking (Living History)
+### ~~Priority 11 — Decision Reversal Tracking (Living History)~~ DONE
 
-**Goal**: When a decision is reversed, update the "current state" while preserving the "previous state" record. The agent should know that "we decided X in January, but reversed to Y in March because Z."
-
-**What's needed**:
-- `superseded_by` field on DecisionRecord linking old → new
-- When a new decision contradicts an existing one, prompt: "This appears to reverse Decision #123. Should I mark it as superseded?"
-- In RAG responses: surface both current and historical decisions with timeline
+Implemented: `superseded_by`, `superseded_at`, `reversal_reason` columns on DecisionRecord. Auto-detection during ingestion/approval via semantic similarity (≥0.80) + LLM confirmation. Manual reversal via `POST /api/admin/decisions/{id}/reverse`. Full chain history via `GET /api/admin/decisions/{id}/history`. Research + Onboarding agents surface reversal timeline in answers.
 
 ### Priority 12 — Drift Detection
 
@@ -433,6 +428,8 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-03-13 | Drive ACL: real per-file permissions from Drive Permissions API (replaces hardcoded "public") |
+| 2026-03-12 | Decision reversal tracking: auto-detection, manual reversal API, chain history, agents surface reversals in answers |
 | 2026-03-12 | Feedback-driven learning: chunk scores adjust based on user helpful/not helpful ratings |
 | 2026-03-12 | User feedback system: thumbs up/down on answers, AnswerFeedback model, admin Feedback tab |
 | 2026-03-12 | Metrics dashboard: overview cards, daily usage chart, agent/query type breakdown, feedback stats |

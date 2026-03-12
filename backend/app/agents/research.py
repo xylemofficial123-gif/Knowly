@@ -35,9 +35,11 @@ Content rules:
 - If you can't find the answer, say so honestly.
 - Be concise but thorough — capture all key points that are relevant to the question, not just a few highlights.
 - A focused, shorter answer is ALWAYS better than a padded answer with unrelated information.
+- If a decision was REVERSED, always mention both the original decision and the reversal with dates and reason. Format: "Originally decided X on [date], but this was reversed to Y on [date] because Z."
 
 Original Question: {question}
 {conversation_context}
+{decision_history}
 Research conducted:
 {research_results}
 
@@ -72,6 +74,7 @@ class ResearchAgent(BaseAgent):
         # Phase 1: Collect all candidate chunks across all search angles
         seen_chunk_ids = set()
         all_candidates = []  # (query_index, query_text, result)
+        acl_blocked_count = 0  # Track chunks the user can't access
 
         for i, query in enumerate(queries):
             vec = embed_text(query)
@@ -83,11 +86,15 @@ class ResearchAgent(BaseAgent):
                 date_to=date_to,
             )
 
-            # ACL filter + minimum relevance threshold
-            filtered = [r for r in results if (
+            # Count relevant results blocked by ACL
+            relevant_results = [r for r in results if r.score >= 0.40]
+            acl_passed = [r for r in relevant_results if
                 user_can_see_chunk(context.user_email, r.payload.get("acl", []))
-                and r.score >= 0.40
-            )]
+            ]
+            acl_blocked_count += len(relevant_results) - len(acl_passed)
+
+            # ACL filter + minimum relevance threshold
+            filtered = acl_passed
 
             # Topic filter
             if topic_filter_enabled and topic_keywords:
@@ -159,6 +166,17 @@ class ResearchAgent(BaseAgent):
                 research_results.append(research_section)
 
         if not research_results:
+            if acl_blocked_count > 0:
+                return AgentResult(
+                    answer=(
+                        f"I found relevant documents, but you don't have access to view them. "
+                        f"{acl_blocked_count} document(s) matched your query but are restricted "
+                        f"based on your permissions. Please contact the document owner or your "
+                        f"manager if you need access."
+                    ),
+                    agent_name=self.name,
+                    confidence=0.0,
+                )
             return AgentResult(
                 answer="I couldn't find relevant information across any of my searches.",
                 agent_name=self.name,
@@ -181,6 +199,9 @@ class ResearchAgent(BaseAgent):
                 + "\n"
             )
 
+        # Fetch relevant decision history (including reversals)
+        decision_history = self._get_decision_context(context.original_query)
+
         # Synthesize across all results
         current_dt = format_ist(now_ist())
         prompt = SYNTHESIS_PROMPT.format(
@@ -188,6 +209,7 @@ class ResearchAgent(BaseAgent):
             research_results="\n".join(research_results),
             current_datetime=current_dt,
             conversation_context=conversation_context,
+            decision_history=decision_history,
         )
 
         answer = generate(prompt, max_tokens=2048)
@@ -258,6 +280,60 @@ class ResearchAgent(BaseAgent):
                 angles.append(f"decisions outcomes {query}")
 
         return angles[:4]
+
+    @staticmethod
+    def _get_decision_context(query: str) -> str:
+        """Fetch relevant decisions including reversal history for RAG context."""
+        from app.core.database import SessionLocal
+        from app.models import DecisionRecord
+
+        db = SessionLocal()
+        try:
+            decisions = (
+                db.query(DecisionRecord)
+                .order_by(DecisionRecord.decided_at.desc())
+                .limit(100)
+                .all()
+            )
+            if not decisions:
+                return ""
+
+            query_vec = embed_text(query)
+            scored = []
+            for d in decisions:
+                d_vec = embed_text(d.decision)
+                dot = sum(a * b for a, b in zip(query_vec, d_vec))
+                norm_q = sum(a * a for a in query_vec) ** 0.5
+                norm_d = sum(a * a for a in d_vec) ** 0.5
+                if norm_q > 0 and norm_d > 0:
+                    sim = dot / (norm_q * norm_d)
+                    if sim > 0.55:
+                        scored.append((d, sim))
+
+            if not scored:
+                return ""
+
+            scored.sort(key=lambda x: x[1], reverse=True)
+            lines = ["Decision records (include in answer if relevant):"]
+            for d, sim in scored[:5]:
+                date_str = d.decided_at.strftime("%d/%m/%Y") if d.decided_at else "?"
+                if d.status == "superseded":
+                    rev_date = d.superseded_at.strftime("%d/%m/%Y") if d.superseded_at else "?"
+                    reason = d.reversal_reason or "No reason recorded"
+                    lines.append(
+                        f"- [REVERSED on {rev_date}] Originally decided on {date_str}: "
+                        f"{d.decision} (Rationale: {d.rationale or 'N/A'}) — Reversal reason: {reason}"
+                    )
+                else:
+                    lines.append(
+                        f"- [ACTIVE, {date_str}] {d.decision} (Rationale: {d.rationale or 'N/A'})"
+                    )
+            return "\n".join(lines) + "\n"
+        except Exception as e:
+            logger.warning(f"Decision context fetch failed: {e}")
+            return ""
+        finally:
+            db.close()
 
     @staticmethod
     def _matches_topic(result, topic_keywords: list[str]) -> bool:

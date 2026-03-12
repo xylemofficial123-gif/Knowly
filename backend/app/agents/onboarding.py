@@ -67,16 +67,21 @@ class OnboardingAgent(BaseAgent):
         sources_text = ""
         citation_map = {}
         source_counter = 0
+        acl_blocked_count = 0
 
         for sq in search_queries:
             vec = embed_text(sq)
             results = search_chunks(vec, limit=6)
 
-            # ACL filter + minimum relevance threshold
-            filtered = [r for r in results if (
+            # Count relevant results blocked by ACL
+            relevant_results = [r for r in results if r.score >= 0.45]
+            acl_passed = [r for r in relevant_results if
                 user_can_see_chunk(context.user_email, r.payload.get("acl", []))
-                and r.score >= 0.45
-            )]
+            ]
+            acl_blocked_count += len(relevant_results) - len(acl_passed)
+
+            # ACL filter + minimum relevance threshold
+            filtered = acl_passed
 
             for r in filtered[:3]:
                 # Deduplicate by ID
@@ -105,6 +110,17 @@ class OnboardingAgent(BaseAgent):
         decisions_text = self._get_relevant_decisions(query)
 
         if not sources_text and not decisions_text:
+            if acl_blocked_count > 0:
+                return AgentResult(
+                    answer=(
+                        f"I found relevant documents, but you don't have access to view them. "
+                        f"{acl_blocked_count} document(s) matched your query but are restricted "
+                        f"based on your permissions. Please contact the document owner or your "
+                        f"manager if you need access."
+                    ),
+                    agent_name=self.name,
+                    confidence=0.0,
+                )
             return AgentResult(
                 answer="I don't have enough information to create a briefing on this topic yet. "
                        "More documents or meeting notes about this topic need to be ingested.",
@@ -146,15 +162,14 @@ class OnboardingAgent(BaseAgent):
         )
 
     def _get_relevant_decisions(self, query: str) -> str:
-        """Fetch decisions related to the query topic."""
+        """Fetch decisions related to the query topic, including reversal history."""
         db = SessionLocal()
         try:
-            # Get recent active decisions and check relevance via embedding similarity
+            # Get all decisions (active + superseded) and check relevance
             decisions = (
                 db.query(DecisionRecord)
-                .filter(DecisionRecord.status == "active")
                 .order_by(DecisionRecord.decided_at.desc())
-                .limit(50)
+                .limit(100)
                 .all()
             )
 
@@ -178,7 +193,15 @@ class OnboardingAgent(BaseAgent):
             lines = []
             for d, sim in scored[:8]:
                 date = format_ist_date(d.decided_at) if d.decided_at else "?"
-                lines.append(f"- [{date}] {d.decision} (Rationale: {d.rationale or 'N/A'})")
+                if d.status == "superseded":
+                    superseded_date = format_ist_date(d.superseded_at) if d.superseded_at else "?"
+                    reason = d.reversal_reason or "No reason recorded"
+                    lines.append(
+                        f"- [REVERSED on {superseded_date}] [{date}] {d.decision} "
+                        f"(Rationale: {d.rationale or 'N/A'}) — Reversal reason: {reason}"
+                    )
+                else:
+                    lines.append(f"- [ACTIVE] [{date}] {d.decision} (Rationale: {d.rationale or 'N/A'})")
 
             return "\n".join(lines)
 
