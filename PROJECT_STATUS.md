@@ -66,7 +66,7 @@ FastAPI Backend
 | Manual Transcripts | DONE | VTT/SRT upload with speaker detection |
 | Slack | BUILT, NOT CONNECTED | Code exists, needs bot token. Will enable real-time monitoring + Guardian Agent |
 | ClickUp | BUILT, NOT CONNECTED | Code exists, needs API key |
-| Gmail | NOT STARTED | Gmail API (readonly scope), ingest sent/received emails, ACL = sender + recipients |
+| Gmail | SKIPPED | Privacy concern — company email contains personal/sensitive content. Drive + Meet + Calendar + Slack covers 90%+ of company knowledge. May revisit with opt-in label-based filtering. |
 
 ### Multi-Agent System
 
@@ -97,6 +97,13 @@ FastAPI Backend
 | Source-type boosting | DONE | Meet/transcript chunks boosted 1.3x, calendar chunks penalized 0.5x for meeting content queries |
 | Acronym buster | DONE | Glossary + AI-powered term lookup |
 | Cross-source redundancy prevention | NOT STARTED | Guardian Agent feature (see Goals section) |
+| Entity linking / knowledge graph | NOT STARTED | Auto-link Slack discussion → ClickUp task → Drive doc about same topic. Unified cross-source graph. |
+| Version awareness (draft vs final) | NOT STARTED | Distinguish between draft docs and finalized decisions. Prevent retrieving outdated drafts as truth. |
+| Drift detection | NOT STARTED | Flag when actions (ClickUp tasks, code) contradict recorded decisions. Notify relevant leads. |
+| No-index zones | NOT STARTED | Ability to mark Slack channels or Drive folders as excluded from ingestion (HR, M&A, personal). |
+| User feedback on answers | NOT STARTED | Thumbs up/down on Oracle answers. Flag incorrect responses. Use feedback to improve retrieval quality. |
+| Decision reversal tracking | NOT STARTED | When a decision is reversed, link old → new, update "current state" while preserving history. Living history. |
+| Success metrics dashboard | NOT STARTED | Track deflection rate (repeated questions reduced), retrieval time (<30s), decision adherence. Display in admin panel. |
 
 ### Frontend
 
@@ -168,16 +175,26 @@ User action (Slack message / ClickUp task / Drive doc edit)
 
 **Already built**: `app/services/slack_ingestion.py`, `app/main.py` has Slack event handlers
 
-### Priority 3 — Gmail Integration
+### Priority 3 — User Permissions / Consent Dashboard
 
-**Goal**: Ingest company emails so the knowledge base includes email decisions and context.
+**Goal**: When users install the product, they can choose which integrations the system can access (Google Drive, Calendar, Slack, ClickUp, etc.). Per-user toggles for read/write access.
+
+**What it looks like**:
+- Settings page in the frontend with toggle switches per integration
+- User connects their accounts individually (OAuth per service)
+- Each user's enabled integrations stored in the database
+- Sync logic only processes sources the user has enabled
+- Admin can see which users have connected which integrations
 
 **What's needed**:
-- Gmail API readonly scope added to OAuth
-- Email ingestion service (similar to Drive ingestion)
-- ACL: sender + all recipients (To, CC)
-- Thread grouping (emails in same thread = same source_id)
-- Skip automated/marketing emails (filter by sender domain or labels)
+- Proper user auth system (Clerk integration or similar — key already exists)
+- `UserIntegration` database model (user_id, integration_name, enabled, oauth_token, connected_at)
+- Settings API endpoints (GET/PUT per integration)
+- Frontend settings page with OAuth connect buttons + toggles
+- Conditional sync: check user's enabled integrations before syncing their data
+- Per-user OAuth tokens (currently shared single token for all)
+
+**Prerequisites**: User authentication system (Clerk), per-user token storage
 
 ### Priority 4 — Project Manager Agent
 
@@ -215,6 +232,85 @@ User action (Slack message / ClickUp task / Drive doc edit)
 - **Drive permissions**: Call Drive Permissions API per file to get exact access list (currently all Drive files are ACL `["public"]`)
 
 **Decision**: Email-based ACL is sufficient for current team size. Revisit when departments need data isolation.
+
+### Priority 7 — Entity Linking / Knowledge Graph
+
+**Goal**: Automatically connect related items across sources. When a Slack thread mentions "Project X", link it to the ClickUp task and Google Doc spec for "Project X" — creating a unified knowledge graph.
+
+**How it works**:
+- Extract entity names (projects, people, features) from every chunk during ingestion
+- Build a graph of entity → chunks relationships in Postgres or a dedicated graph store
+- When searching, pull related chunks from linked entities (not just vector similarity)
+- Enables queries like "Show me everything about Project X" across all sources
+
+**Prerequisites**: Entity extraction improvements (currently regex-based), Slack + ClickUp connected
+
+### Priority 8 — Version Awareness (Draft vs Finalized)
+
+**Goal**: Distinguish between draft documents and finalized decisions. Prevent the agent from presenting outdated drafts as truth.
+
+**How it works**:
+- Tag documents with status: `draft`, `in_review`, `finalized`, `superseded`
+- For Google Drive: detect "DRAFT" in title/content, check sharing settings (restricted = likely draft)
+- For decisions: already have `active`/`superseded` status in DecisionRecord
+- In RAG responses: clearly label draft sources and prioritize finalized content
+
+### Priority 9 — No-Index Zones
+
+**Goal**: Allow admins to mark specific Slack channels, Drive folders, or ClickUp spaces as excluded from ingestion.
+
+**What's needed**:
+- Admin UI with a list of connected sources and toggle to exclude
+- `ExclusionRule` model in database (source_type, identifier, reason)
+- Check exclusion rules during sync before ingesting content
+- Examples: HR channel, salary docs folder, M&A discussions
+
+### Priority 10 — User Feedback on Answers
+
+**Goal**: Let users thumbs-up/thumbs-down Oracle answers to improve quality over time.
+
+**What's needed**:
+- Frontend: thumbs up/down buttons on each response
+- Backend: `AnswerFeedback` model (query, answer, rating, user_email, timestamp)
+- Analytics: surface low-rated answers in admin panel for review
+- Future: use feedback to fine-tune retrieval (boost chunks from good answers, penalize from bad)
+
+### Priority 11 — Decision Reversal Tracking (Living History)
+
+**Goal**: When a decision is reversed, update the "current state" while preserving the "previous state" record. The agent should know that "we decided X in January, but reversed to Y in March because Z."
+
+**What's needed**:
+- `superseded_by` field on DecisionRecord linking old → new
+- When a new decision contradicts an existing one, prompt: "This appears to reverse Decision #123. Should I mark it as superseded?"
+- In RAG responses: surface both current and historical decisions with timeline
+
+### Priority 12 — Drift Detection
+
+**Goal**: If the team starts doing something that contradicts a recorded decision, flag the inconsistency.
+
+**How it works**:
+- Monitor new ClickUp tasks, Slack messages, and Drive docs against active decisions
+- Use semantic similarity between new content and decision text
+- If high similarity + contradicting intent detected → alert relevant leads
+- Harder than re-litigation detection (requires understanding intent, not just topic overlap)
+
+**Prerequisites**: Guardian Agent, Slack connected, ClickUp connected
+
+### Priority 13 — Success Metrics Dashboard
+
+**Goal**: Track and display the PRD's success metrics in the admin panel.
+
+**Metrics**:
+- **Deflection Rate**: Track "Has this been asked before?" patterns. Compare repeated question frequency over time.
+- **Retrieval Time**: Measure time from query to answer delivery (target: <30 seconds)
+- **Decision Adherence**: Track how often re-litigation alerts are triggered (lower = better adherence)
+- **Usage**: Queries per day, unique users, most-queried topics
+- **Quality**: Average confidence score, user feedback ratings
+
+**What's needed**:
+- Aggregate audit log data into daily/weekly metrics
+- New admin panel tab: "Metrics" with charts
+- Baseline measurement before vs after deployment
 
 ---
 
@@ -337,6 +433,8 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-03-12 | PRD gap analysis: added 7 missing features to roadmap (entity linking, version awareness, no-index, feedback, drift detection, decision reversal, metrics) |
+| 2026-03-12 | Gmail integration skipped (privacy concern), added User Permissions Dashboard to roadmap |
 | 2026-03-12 | Fix: speaker attribution in meeting summaries (discussion_points with raised_by) |
 | 2026-03-12 | Fix: source-type boosting (meet > calendar for content queries) |
 | 2026-03-12 | Fix: text_preview increased from 500 to 2000 chars (transcript content no longer truncated) |
