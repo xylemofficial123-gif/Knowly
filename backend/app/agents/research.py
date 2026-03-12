@@ -29,10 +29,12 @@ Formatting rules:
 - Dates/times in DD/MM/YYYY IST (GMT+5:30) format
 
 Content rules:
+- ONLY use information that is DIRECTLY relevant to the user's question. Ignore tangentially related content even if it appears in the sources.
 - Only use information from the provided sources. Never invent facts.
 - If sources conflict, note the conflict and cite both.
 - If you can't find the answer, say so honestly.
-- Be concise but thorough — capture all key points from the meeting, not just a few highlights.
+- Be concise but thorough — capture all key points that are relevant to the question, not just a few highlights.
+- A focused, shorter answer is ALWAYS better than a padded answer with unrelated information.
 
 Original Question: {question}
 {conversation_context}
@@ -81,9 +83,10 @@ class ResearchAgent(BaseAgent):
                 date_to=date_to,
             )
 
-            # ACL filter
-            filtered = [r for r in results if user_can_see_chunk(
-                context.user_email, r.payload.get("acl", [])
+            # ACL filter + minimum relevance threshold
+            filtered = [r for r in results if (
+                user_can_see_chunk(context.user_email, r.payload.get("acl", []))
+                and r.score >= 0.40
             )]
 
             # Topic filter

@@ -12,15 +12,17 @@ from app.models import DecisionRecord
 
 logger = logging.getLogger(__name__)
 
-ONBOARDING_PROMPT = """You are an onboarding specialist for a company. A team member is asking about a topic they need to get up to speed on. Create a clear, structured briefing.
+ONBOARDING_PROMPT = """You are an onboarding specialist for a company. A team member is asking about a specific topic. Create a focused, structured briefing.
+
+CRITICAL RULE: ONLY include information that is DIRECTLY relevant to the question asked. If a source document mentions something unrelated to the question — even if it's from the same meeting or document — DO NOT include it. Stay strictly on-topic. Do not pad the answer with tangentially related information.
 
 Structure your response as:
 1. **Overview** — What this is about (2-3 sentences)
-2. **Key Decisions** — Important decisions and WHY they were made (bullet points)
-3. **Current Status** — Where things stand right now
-4. **Key People** — Who's involved and their roles (bullet points)
-5. **Important Context** — Things a newcomer wouldn't know but should
-6. **Open Items** — Unresolved questions or pending action items
+2. **Key Decisions** — Decisions directly related to this topic and WHY they were made (bullet points)
+3. **Current Status** — Where things stand right now for THIS topic specifically
+4. **Key People** — Who's directly involved in THIS topic and their roles (bullet points)
+5. **Important Context** — Things a newcomer wouldn't know about THIS topic
+6. **Open Items** — Unresolved questions or pending action items for THIS topic
 
 Formatting rules:
 - Use bullet points throughout — no walls of text
@@ -29,6 +31,7 @@ Formatting rules:
 - Don't over-cite — pick the 1-2 most relevant sources per claim
 - If a section has no info, write "No information available" — don't invent
 - Dates in DD/MM/YYYY IST format
+- SKIP entire sections if there's no directly relevant info for them — a shorter, focused answer is better than a padded one
 
 Question: {question}
 
@@ -69,8 +72,10 @@ class OnboardingAgent(BaseAgent):
             vec = embed_text(sq)
             results = search_chunks(vec, limit=6)
 
-            filtered = [r for r in results if user_can_see_chunk(
-                context.user_email, r.payload.get("acl", [])
+            # ACL filter + minimum relevance threshold
+            filtered = [r for r in results if (
+                user_can_see_chunk(context.user_email, r.payload.get("acl", []))
+                and r.score >= 0.45
             )]
 
             for r in filtered[:3]:
