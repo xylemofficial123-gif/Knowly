@@ -101,7 +101,7 @@ FastAPI Backend
 | Version awareness (draft vs final) | NOT STARTED | Distinguish between draft docs and finalized decisions. Prevent retrieving outdated drafts as truth. |
 | Drift detection | NOT STARTED | Flag when actions (ClickUp tasks, code) contradict recorded decisions. Notify relevant leads. |
 | No-index zones | NOT STARTED | Ability to mark Slack channels or Drive folders as excluded from ingestion (HR, M&A, personal). |
-| User feedback on answers | DONE | Thumbs up/down on every Oracle answer. Stored in `answer_feedback` table. Viewable in admin Feedback tab. |
+| User feedback on answers | DONE | Thumbs up/down on every Oracle answer. Stored in `answer_feedback` table. Viewable in admin Feedback tab. **Feedback-driven learning**: chunks used in helpful answers get score boost (+0.02), not helpful get penalty (-0.02), clamped to [-0.2, 0.2]. Applied during search re-ranking. |
 | Decision reversal tracking | NOT STARTED | When a decision is reversed, link old → new, update "current state" while preserving history. Living history. |
 | Success metrics dashboard | DONE | Admin Metrics tab: total queries, daily usage chart, avg confidence, avg response time, agent/query type breakdown, feedback helpfulness rate. |
 
@@ -433,6 +433,7 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-03-12 | Feedback-driven learning: chunk scores adjust based on user helpful/not helpful ratings |
 | 2026-03-12 | User feedback system: thumbs up/down on answers, AnswerFeedback model, admin Feedback tab |
 | 2026-03-12 | Metrics dashboard: overview cards, daily usage chart, agent/query type breakdown, feedback stats |
 | 2026-03-12 | Enriched audit logs: agent, query_type, confidence, response_time_ms now tracked per query |
