@@ -162,6 +162,23 @@ def submit_feedback(req: FeedbackRequest):
         )
         db.add(feedback)
         db.commit()
+
+        # Update chunk feedback scores in Qdrant
+        if req.audit_log_id:
+            try:
+                audit_log = db.query(AuditLog).filter(
+                    AuditLog.id == req.audit_log_id
+                ).first()
+                if audit_log and audit_log.chunks_returned:
+                    import json
+                    chunk_ids = json.loads(audit_log.chunks_returned)
+                    if chunk_ids:
+                        from app.services.embeddings import update_chunk_feedback
+                        update_chunk_feedback(chunk_ids, req.rating)
+                        logger.info(f"Updated feedback scores for {len(chunk_ids)} chunks ({req.rating})")
+            except Exception as e:
+                logger.warning(f"Chunk feedback update failed (non-critical): {e}")
+
         return {"status": "ok", "id": str(feedback.id)}
     except Exception as e:
         db.rollback()

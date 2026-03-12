@@ -55,11 +55,42 @@ def embed_text(text: str) -> list[float]:
 def upsert_chunk(chunk_id: str, text: str, payload: dict):
     vector = embed_text(text)
     payload["text_preview"] = text[:2000]
+    payload.setdefault("feedback_score", 0.0)
     qdrant.upsert(
         collection_name=COLLECTION,
         points=[PointStruct(id=chunk_id, vector=vector, payload=payload)],
     )
     return chunk_id
+
+
+def update_chunk_feedback(chunk_ids: list[str], rating: str):
+    """Adjust feedback_score on chunks based on user feedback.
+
+    'helpful' → +0.02 per vote, 'not_helpful' → -0.02 per vote.
+    Score is clamped to [-0.2, 0.2] to prevent runaway boosting.
+    """
+    delta = 0.02 if rating == "helpful" else -0.02
+
+    for chunk_id in chunk_ids:
+        try:
+            points = qdrant.retrieve(
+                collection_name=COLLECTION,
+                ids=[chunk_id],
+                with_payload=True,
+            )
+            if not points:
+                continue
+
+            current_score = points[0].payload.get("feedback_score", 0.0)
+            new_score = max(-0.2, min(0.2, current_score + delta))
+
+            qdrant.set_payload(
+                collection_name=COLLECTION,
+                payload={"feedback_score": new_score},
+                points=[chunk_id],
+            )
+        except Exception as e:
+            logger.debug(f"Failed to update feedback for chunk {chunk_id}: {e}")
 
 
 def _get_chunk_date(payload: dict) -> datetime | None:
@@ -87,9 +118,9 @@ def search_chunks(
         date_from: ISO date string (YYYY-MM-DD) — filter out chunks older than this.
         date_to: ISO date string (YYYY-MM-DD) — filter out chunks newer than this.
     """
-    # Fetch extra when we need to re-rank or filter
-    needs_postprocessing = freshness_weight > 0 or date_from or date_to
-    fetch_limit = limit * 4 if needs_postprocessing else limit
+    # Always fetch extra to allow re-ranking (feedback scores, freshness, date filters)
+    needs_postprocessing = True
+    fetch_limit = limit * 4
 
     results = qdrant.query_points(
         collection_name=COLLECTION,
@@ -98,9 +129,6 @@ def search_chunks(
         with_payload=True,
     )
     points = results.points
-
-    if not needs_postprocessing:
-        return points[:limit]
 
     # Parse date boundaries
     dt_from = parse_iso(f"{date_from}T00:00:00Z") if date_from else None
@@ -128,9 +156,14 @@ def search_chunks(
             freshness = 1.0 / (1.0 + (age_hours / 24) ** 0.7)
             p.score = (1 - freshness_weight) * p.score + freshness_weight * freshness
 
+        # Apply feedback score boost/penalty
+        feedback_score = p.payload.get("feedback_score", 0.0)
+        if feedback_score != 0.0:
+            p.score = p.score + feedback_score
+
         filtered.append(p)
 
-    if freshness_weight > 0:
-        filtered.sort(key=lambda p: p.score, reverse=True)
+    # Re-sort by adjusted score
+    filtered.sort(key=lambda p: p.score, reverse=True)
 
     return filtered[:limit]
