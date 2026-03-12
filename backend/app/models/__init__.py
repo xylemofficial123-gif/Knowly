@@ -54,4 +54,23 @@ class AuditLog(Base):
     query = Column(Text)
     chunks_returned = Column(String)
     result_count = Column(String)
+    agent = Column(String)
+    query_type = Column(String)
+    confidence = Column(Float)
+    response_time_ms = Column(Float)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class AnswerFeedback(Base):
+    __tablename__ = "answer_feedback"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    audit_log_id = Column(UUID(as_uuid=True), ForeignKey("audit_log.id"), nullable=True)
+    session_id = Column(String)
+    user_email = Column(String)
+    query = Column(Text)
+    rating = Column(String)  # "helpful" or "not_helpful"
+    comment = Column(Text, nullable=True)
+    agent = Column(String)
+    query_type = Column(String)
+    confidence = Column(Float)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

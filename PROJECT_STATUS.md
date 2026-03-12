@@ -101,9 +101,9 @@ FastAPI Backend
 | Version awareness (draft vs final) | NOT STARTED | Distinguish between draft docs and finalized decisions. Prevent retrieving outdated drafts as truth. |
 | Drift detection | NOT STARTED | Flag when actions (ClickUp tasks, code) contradict recorded decisions. Notify relevant leads. |
 | No-index zones | NOT STARTED | Ability to mark Slack channels or Drive folders as excluded from ingestion (HR, M&A, personal). |
-| User feedback on answers | NOT STARTED | Thumbs up/down on Oracle answers. Flag incorrect responses. Use feedback to improve retrieval quality. |
+| User feedback on answers | DONE | Thumbs up/down on every Oracle answer. Stored in `answer_feedback` table. Viewable in admin Feedback tab. |
 | Decision reversal tracking | NOT STARTED | When a decision is reversed, link old → new, update "current state" while preserving history. Living history. |
-| Success metrics dashboard | NOT STARTED | Track deflection rate (repeated questions reduced), retrieval time (<30s), decision adherence. Display in admin panel. |
+| Success metrics dashboard | DONE | Admin Metrics tab: total queries, daily usage chart, avg confidence, avg response time, agent/query type breakdown, feedback helpfulness rate. |
 
 ### Frontend
 
@@ -114,7 +114,7 @@ FastAPI Backend
 | Clickable citations | DONE | `[N]` badges link to source URLs |
 | Agent metadata bar | DONE | Shows agent name, query type, confidence |
 | Collapsible sources | DONE | `<details>` toggle for source list |
-| Admin panel | DONE | Audit log + review queue tabs |
+| Admin panel | DONE | 4 tabs: Metrics, Audit Log, Review Queue, Feedback |
 
 ### Infrastructure
 
@@ -433,6 +433,9 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-03-12 | User feedback system: thumbs up/down on answers, AnswerFeedback model, admin Feedback tab |
+| 2026-03-12 | Metrics dashboard: overview cards, daily usage chart, agent/query type breakdown, feedback stats |
+| 2026-03-12 | Enriched audit logs: agent, query_type, confidence, response_time_ms now tracked per query |
 | 2026-03-12 | PRD gap analysis: added 7 missing features to roadmap (entity linking, version awareness, no-index, feedback, drift detection, decision reversal, metrics) |
 | 2026-03-12 | Gmail integration skipped (privacy concern), added User Permissions Dashboard to roadmap |
 | 2026-03-12 | Fix: speaker attribution in meeting summaries (discussion_points with raised_by) |

@@ -2,6 +2,7 @@
 import json
 import hashlib
 import logging
+import time
 import uuid
 
 import redis
@@ -72,6 +73,7 @@ def ask(question: str, user_email: str, session_id: str = "", history: list[dict
     context.metadata["session_id"] = session_id
 
     # Step 1: Router classifies the query (with conversation context)
+    start_time = time.time()
     plan = router.run(context)
 
     # Step 2: Select and run the appropriate agent
@@ -79,6 +81,7 @@ def ask(question: str, user_email: str, session_id: str = "", history: list[dict
     logger.info(f"Routing to {agent.name} agent (type={context.query_type})")
 
     result = agent.run(context)
+    response_time_ms = (time.time() - start_time) * 1000
 
     # Build response
     response = {
@@ -93,6 +96,7 @@ def ask(question: str, user_email: str, session_id: str = "", history: list[dict
     }
 
     # Audit log
+    audit_log_id = None
     db: Session = SessionLocal()
     try:
         log = AuditLog(
@@ -100,14 +104,20 @@ def ask(question: str, user_email: str, session_id: str = "", history: list[dict
             query=question,
             chunks_returned=json.dumps(result.chunks_used[:10]),
             result_count=str(len(result.citations)),
+            agent=result.agent_name,
+            query_type=context.query_type,
+            confidence=result.confidence,
+            response_time_ms=response_time_ms,
             timestamp=now_utc(),
         )
         db.add(log)
         db.commit()
+        audit_log_id = str(log.id)
     except Exception as e:
         db.rollback()
         logger.error(f"Audit log failed: {e}")
     finally:
         db.close()
 
+    response["audit_log_id"] = audit_log_id
     return response

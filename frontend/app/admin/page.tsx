@@ -24,10 +24,46 @@ interface ReviewItem {
   created_at: string;
 }
 
+interface FeedbackItem {
+  id: string;
+  query: string;
+  rating: string;
+  comment: string;
+  agent: string;
+  query_type: string;
+  confidence: number;
+  user_email: string;
+  created_at: string;
+}
+
+interface Metrics {
+  overview: {
+    total_queries: number;
+    queries_today: number;
+    queries_this_week: number;
+    unique_users: number;
+    avg_confidence: number;
+    avg_response_time_ms: number;
+  };
+  feedback: {
+    total: number;
+    helpful: number;
+    not_helpful: number;
+    helpfulness_rate: number;
+  };
+  agent_usage: Record<string, number>;
+  query_type_usage: Record<string, number>;
+  daily_usage: { date: string; count: number }[];
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<"audit" | "review">("audit");
+  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback">(
+    "metrics"
+  );
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
+  const [feedbackList, setFeedbackList] = useState<FeedbackItem[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(false);
 
   const fetchAuditLog = async () => {
@@ -46,7 +82,9 @@ export default function AdminPage() {
   const fetchReviewQueue = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/review-queue?status=pending`);
+      const res = await fetch(
+        `${API_URL}/api/admin/review-queue?status=pending`
+      );
       const data = await res.json();
       setReviewQueue(data.items || []);
     } catch (e) {
@@ -56,9 +94,37 @@ export default function AdminPage() {
     }
   };
 
+  const fetchFeedback = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/feedback`);
+      const data = await res.json();
+      setFeedbackList(data.items || []);
+    } catch (e) {
+      console.error("Failed to fetch feedback:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMetrics = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/metrics`);
+      const data = await res.json();
+      setMetrics(data);
+    } catch (e) {
+      console.error("Failed to fetch metrics:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (tab === "audit") fetchAuditLog();
-    else fetchReviewQueue();
+    else if (tab === "review") fetchReviewQueue();
+    else if (tab === "feedback") fetchFeedback();
+    else if (tab === "metrics") fetchMetrics();
   }, [tab]);
 
   const handleReview = async (id: string, action: "approve" | "reject") => {
@@ -75,6 +141,13 @@ export default function AdminPage() {
     }
   };
 
+  const tabs = [
+    { key: "metrics", label: "Metrics" },
+    { key: "audit", label: "Audit Log" },
+    { key: "review", label: "Review Queue" },
+    { key: "feedback", label: "Feedback" },
+  ] as const;
+
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -85,26 +158,19 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setTab("audit")}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            tab === "audit"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-          }`}
-        >
-          Audit Log
-        </button>
-        <button
-          onClick={() => setTab("review")}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            tab === "review"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-          }`}
-        >
-          Review Queue
-        </button>
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              tab === t.key
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {loading && (
@@ -114,6 +180,149 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Metrics Tab */}
+      {tab === "metrics" && !loading && metrics && (
+        <div className="space-y-6">
+          {/* Overview Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <StatCard
+              label="Total Queries"
+              value={metrics.overview.total_queries}
+            />
+            <StatCard label="Today" value={metrics.overview.queries_today} />
+            <StatCard
+              label="This Week"
+              value={metrics.overview.queries_this_week}
+            />
+            <StatCard
+              label="Unique Users"
+              value={metrics.overview.unique_users}
+            />
+            <StatCard
+              label="Avg Confidence"
+              value={`${Math.round(metrics.overview.avg_confidence * 100)}%`}
+            />
+            <StatCard
+              label="Avg Response"
+              value={`${Math.round(metrics.overview.avg_response_time_ms / 1000)}s`}
+            />
+          </div>
+
+          {/* Feedback Summary */}
+          <div className="bg-white rounded-lg border p-5">
+            <h3 className="font-medium mb-3">Answer Quality (User Feedback)</h3>
+            {metrics.feedback.total > 0 ? (
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="h-3 rounded-full bg-green-500"
+                    style={{
+                      width: `${Math.max(metrics.feedback.helpfulness_rate * 2, 20)}px`,
+                    }}
+                  ></div>
+                  <span className="text-sm">
+                    {metrics.feedback.helpful} helpful (
+                    {metrics.feedback.helpfulness_rate}%)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="h-3 rounded-full bg-red-400"
+                    style={{
+                      width: `${Math.max((100 - metrics.feedback.helpfulness_rate) * 2, 20)}px`,
+                    }}
+                  ></div>
+                  <span className="text-sm">
+                    {metrics.feedback.not_helpful} not helpful
+                  </span>
+                </div>
+                <span className="text-sm text-gray-500">
+                  ({metrics.feedback.total} total ratings)
+                </span>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                No feedback collected yet.
+              </p>
+            )}
+          </div>
+
+          {/* Agent & Query Type Usage */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded-lg border p-5">
+              <h3 className="font-medium mb-3">Agent Usage</h3>
+              {Object.keys(metrics.agent_usage).length > 0 ? (
+                <div className="space-y-2">
+                  {Object.entries(metrics.agent_usage).map(([agent, count]) => (
+                    <div key={agent} className="flex justify-between text-sm">
+                      <span className="capitalize">{agent}</span>
+                      <span className="font-mono text-gray-600">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  No agent data yet (new metrics start tracking from now).
+                </p>
+              )}
+            </div>
+            <div className="bg-white rounded-lg border p-5">
+              <h3 className="font-medium mb-3">Query Types</h3>
+              {Object.keys(metrics.query_type_usage).length > 0 ? (
+                <div className="space-y-2">
+                  {Object.entries(metrics.query_type_usage).map(
+                    ([qtype, count]) => (
+                      <div
+                        key={qtype}
+                        className="flex justify-between text-sm"
+                      >
+                        <span>{qtype}</span>
+                        <span className="font-mono text-gray-600">{count}</span>
+                      </div>
+                    )
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  No query type data yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Daily Usage */}
+          {metrics.daily_usage.length > 0 && (
+            <div className="bg-white rounded-lg border p-5">
+              <h3 className="font-medium mb-3">Daily Queries (Last 7 Days)</h3>
+              <div className="flex items-end gap-2 h-32">
+                {metrics.daily_usage.map((d) => {
+                  const maxCount = Math.max(
+                    ...metrics.daily_usage.map((x) => x.count)
+                  );
+                  const height = maxCount > 0 ? (d.count / maxCount) * 100 : 0;
+                  return (
+                    <div
+                      key={d.date}
+                      className="flex-1 flex flex-col items-center gap-1"
+                    >
+                      <span className="text-xs text-gray-600">{d.count}</span>
+                      <div
+                        className="w-full bg-blue-500 rounded-t"
+                        style={{ height: `${Math.max(height, 4)}%` }}
+                      ></div>
+                      <span className="text-xs text-gray-400">
+                        {d.date.slice(5)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Audit Log Tab */}
       {tab === "audit" && !loading && (
         <div className="bg-white rounded-lg border overflow-hidden">
           <table className="w-full">
@@ -163,6 +372,7 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Review Queue Tab */}
       {tab === "review" && !loading && (
         <div className="grid gap-4">
           {reviewQueue.map((item) => (
@@ -227,6 +437,64 @@ export default function AdminPage() {
           )}
         </div>
       )}
+
+      {/* Feedback Tab */}
+      {tab === "feedback" && !loading && (
+        <div className="space-y-3">
+          {feedbackList.map((f) => (
+            <div
+              key={f.id}
+              className="p-4 bg-white rounded-lg border flex items-start gap-4"
+            >
+              <span
+                className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                  f.rating === "helpful"
+                    ? "bg-green-100 text-green-700"
+                    : "bg-red-100 text-red-700"
+                }`}
+              >
+                {f.rating === "helpful" ? "Helpful" : "Not Helpful"}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate">{f.query}</p>
+                {f.comment && (
+                  <p className="text-xs text-gray-500 mt-1">{f.comment}</p>
+                )}
+                <div className="flex gap-3 mt-1 text-xs text-gray-400">
+                  <span>{f.agent}</span>
+                  <span>{f.query_type}</span>
+                  <span>{Math.round(f.confidence * 100)}% confidence</span>
+                  <span>
+                    {f.created_at
+                      ? new Date(f.created_at).toLocaleString()
+                      : ""}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+          {feedbackList.length === 0 && (
+            <div className="p-8 text-center text-gray-500 bg-white rounded-lg border">
+              No feedback collected yet. Users can rate answers in the chat.
+            </div>
+          )}
+        </div>
+      )}
     </main>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="bg-white rounded-lg border p-4 text-center">
+      <div className="text-2xl font-bold">{value}</div>
+      <div className="text-xs text-gray-500 mt-1">{label}</div>
+    </div>
   );
 }

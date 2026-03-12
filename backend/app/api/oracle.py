@@ -42,6 +42,7 @@ class AgentResponse(BaseModel):
     reasoning_steps: list[str] = []
     confidence: float = 0.0
     session_id: str = ""
+    audit_log_id: str = ""
 
 
 @router.post("/ask", response_model=AgentResponse)

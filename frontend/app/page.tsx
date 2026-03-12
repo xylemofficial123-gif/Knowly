@@ -24,6 +24,7 @@ interface AgentResult {
   reasoning_steps: string[];
   confidence: number;
   session_id: string;
+  audit_log_id: string;
 }
 
 interface ChatMessage {
@@ -38,6 +39,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sessionId, setSessionId] = useState("");
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<number, string>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -109,6 +111,33 @@ export default function Home() {
     setSessionId("");
     setError("");
     setQuestion("");
+    setFeedbackGiven({});
+  };
+
+  const handleFeedback = async (msgIndex: number, rating: string) => {
+    const msg = messages[msgIndex];
+    if (!msg.result) return;
+
+    setFeedbackGiven((prev) => ({ ...prev, [msgIndex]: rating }));
+
+    try {
+      await fetch(`${API_URL}/api/admin/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audit_log_id: msg.result.audit_log_id || "",
+          session_id: sessionId,
+          user_email: "sachin.kurup@seedlinglabs.com",
+          query: messages[msgIndex - 1]?.content || "",
+          rating,
+          agent: msg.result.agent,
+          query_type: msg.result.query_type,
+          confidence: msg.result.confidence,
+        }),
+      });
+    } catch (e) {
+      console.error("Feedback submission failed:", e);
+    }
   };
 
   const agentLabel = (name: string) => {
@@ -215,6 +244,33 @@ export default function Home() {
                       ))}
                     </div>
                   </details>
+                )}
+
+                {/* Feedback buttons */}
+                {msg.result && (
+                  <div className="flex items-center gap-2 mt-1">
+                    {feedbackGiven[i] ? (
+                      <span className="text-xs text-gray-400">
+                        {feedbackGiven[i] === "helpful" ? "Marked as helpful" : "Marked as not helpful"} — thanks!
+                      </span>
+                    ) : (
+                      <>
+                        <span className="text-xs text-gray-400">Was this helpful?</span>
+                        <button
+                          onClick={() => handleFeedback(i, "helpful")}
+                          className="px-2 py-0.5 text-xs text-green-600 border border-green-200 rounded hover:bg-green-50 transition-colors"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => handleFeedback(i, "not_helpful")}
+                          className="px-2 py-0.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+                        >
+                          No
+                        </button>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             )}
