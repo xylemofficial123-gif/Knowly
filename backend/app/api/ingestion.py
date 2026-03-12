@@ -52,7 +52,16 @@ def trigger_ingestion(req: TriggerRequest):
             except Exception as e:
                 results["drive"] = {"status": "error", "detail": str(e)}
 
-        if req.source not in ("slack", "clickup", "meet", "drive", "all"):
+        if req.source in ("calendar", "all"):
+            from app.services.calendar_sync import sync_calendar
+
+            try:
+                count = sync_calendar()
+                results["calendar"] = {"status": "ok", "events_synced": count}
+            except Exception as e:
+                results["calendar"] = {"status": "error", "detail": str(e)}
+
+        if req.source not in ("slack", "clickup", "meet", "drive", "calendar", "all"):
             raise HTTPException(status_code=400, detail=f"Unknown source: {req.source}")
 
         return {"status": "triggered", "results": results}

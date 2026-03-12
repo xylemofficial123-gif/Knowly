@@ -6,9 +6,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/oracle", tags=["oracle"])
 
 
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
 class AskRequest(BaseModel):
     question: str
     user_email: str = "demo@yourcompany.com"
+    session_id: str = ""
+    history: list[ChatMessage] = []
 
 
 class CitationResponse(BaseModel):
@@ -26,8 +33,44 @@ class OracleResponse(BaseModel):
     chunks_used: list[str] = []
 
 
-@router.post("/ask", response_model=OracleResponse)
+class AgentResponse(BaseModel):
+    answer: str
+    citations: list[CitationResponse] = []
+    chunks_used: list[str] = []
+    agent: str = ""
+    query_type: str = ""
+    reasoning_steps: list[str] = []
+    confidence: float = 0.0
+    session_id: str = ""
+
+
+@router.post("/ask", response_model=AgentResponse)
 def ask(req: AskRequest):
+    """Main query endpoint — routes through the multi-agent system."""
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    try:
+        from app.agents.orchestrator import ask as agent_ask
+
+        # Convert history to list of dicts
+        history = [{"role": m.role, "content": m.content} for m in req.history]
+
+        result = agent_ask(
+            req.question,
+            req.user_email,
+            session_id=req.session_id,
+            history=history,
+        )
+        return AgentResponse(**result)
+    except Exception as e:
+        logger.error(f"Agent error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ask/simple", response_model=OracleResponse)
+def ask_simple(req: AskRequest):
+    """Legacy simple Oracle endpoint (single-search, no routing)."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 

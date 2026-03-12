@@ -8,7 +8,10 @@ from app.services.chunker import chunk_and_store
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/calendar.readonly",
+]
 TOKEN_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "google_token.json")
 
 # Supported MIME types and their export formats

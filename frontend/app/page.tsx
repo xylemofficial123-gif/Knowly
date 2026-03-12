@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import OracleResponse from "@/components/OracleResponse";
 import CitationCard from "@/components/CitationCard";
 
@@ -15,32 +15,63 @@ interface Citation {
   score: number;
 }
 
-interface OracleResult {
+interface AgentResult {
   answer: string;
   citations: Citation[];
   chunks_used: string[];
+  agent: string;
+  query_type: string;
+  reasoning_steps: string[];
+  confidence: number;
+  session_id: string;
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  result?: AgentResult;
 }
 
 export default function Home() {
   const [question, setQuestion] = useState("");
-  const [result, setResult] = useState<OracleResult | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [sessionId, setSessionId] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
 
   const handleAsk = async () => {
-    if (!question.trim()) return;
+    if (!question.trim() || loading) return;
 
+    const userMessage: ChatMessage = { role: "user", content: question };
+    setMessages((prev) => [...prev, userMessage]);
+    setQuestion("");
     setLoading(true);
     setError("");
-    setResult(null);
 
     try {
+      // Build history from previous messages (for backend context)
+      const history = [...messages, userMessage].map((m) => ({
+        role: m.role,
+        content: m.role === "assistant" ? m.result?.answer || m.content : m.content,
+      }));
+
       const res = await fetch(`${API_URL}/api/oracle/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question,
+          question: userMessage.content,
           user_email: "sachin.kurup@seedlinglabs.com",
+          session_id: sessionId,
+          history,
         }),
       });
 
@@ -49,8 +80,15 @@ export default function Home() {
         throw new Error(err.detail || "Request failed");
       }
 
-      const data: OracleResult = await res.json();
-      setResult(data);
+      const data: AgentResult = await res.json();
+      if (data.session_id) setSessionId(data.session_id);
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: data.answer,
+        result: data,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Something went wrong";
       setError(message);
@@ -66,22 +104,153 @@ export default function Home() {
     }
   };
 
+  const handleNewChat = () => {
+    setMessages([]);
+    setSessionId("");
+    setError("");
+    setQuestion("");
+  };
+
+  const agentLabel = (name: string) => {
+    const labels: Record<string, string> = {
+      research: "Research Agent",
+      onboarding: "Onboarding Agent",
+      router: "Router",
+    };
+    return labels[name] || name;
+  };
+
+  const queryTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      factual: "Fact Lookup",
+      timeline: "Timeline",
+      decision_history: "Decision History",
+      who_what: "People & Roles",
+      comparison: "Comparison",
+      meeting_summary: "Meeting Summary",
+      action_items: "Action Items",
+      onboarding: "Onboarding",
+      multi_hop: "Deep Research",
+    };
+    return labels[type] || type;
+  };
+
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Knowledge Oracle</h1>
-        <p className="text-gray-600">
-          Ask questions about company decisions, history, and rationale.
-        </p>
+    <main className="max-w-4xl mx-auto px-4 py-8 flex flex-col h-screen">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">Knowledge Agent</h1>
+          <p className="text-gray-500 text-sm">
+            Ask questions about company decisions, meetings, history, and
+            projects.
+          </p>
+        </div>
+        {messages.length > 0 && (
+          <button
+            onClick={handleNewChat}
+            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            New Chat
+          </button>
+        )}
       </div>
 
-      <div className="flex gap-3 mb-6">
+      {/* Chat messages */}
+      <div className="flex-1 overflow-y-auto space-y-4 mb-4 min-h-0">
+        {messages.length === 0 && !loading && (
+          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            Ask a question to get started
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <div key={i}>
+            {msg.role === "user" ? (
+              <div className="flex justify-end">
+                <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-br-md max-w-[80%]">
+                  {msg.content}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Agent metadata bar */}
+                {msg.result?.agent && (
+                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                      {agentLabel(msg.result.agent)}
+                    </span>
+                    {msg.result.query_type && (
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-xs">
+                        {queryTypeLabel(msg.result.query_type)}
+                      </span>
+                    )}
+                    {msg.result.confidence > 0 && (
+                      <span>
+                        {Math.round(msg.result.confidence * 100)}% confidence
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <OracleResponse
+                  answer={msg.content}
+                  citations={msg.result?.citations || []}
+                />
+
+                {msg.result && msg.result.citations.length > 0 && (
+                  <details className="group">
+                    <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+                      {msg.result.citations.length} source
+                      {msg.result.citations.length > 1 ? "s" : ""} referenced
+                    </summary>
+                    <div className="grid gap-2 mt-2">
+                      {msg.result.citations.map((citation, ci) => (
+                        <CitationCard
+                          key={ci}
+                          citation={citation}
+                          index={ci + 1}
+                        />
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex items-center gap-3 p-4 bg-white rounded-lg border">
+            <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+            <span className="text-gray-500 text-sm">
+              Agents analyzing your question...
+            </span>
+          </div>
+        )}
+
+        {error && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            {error}
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input bar — fixed at bottom */}
+      <div className="flex gap-3 pt-3 border-t border-gray-200">
         <input
           type="text"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Why did we choose X? What was decided about Y?"
+          placeholder={
+            messages.length > 0
+              ? "Ask a follow-up..."
+              : "What happened in the standup? Who edited X? Brief me on project Y..."
+          }
           className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
         <button
@@ -89,44 +258,14 @@ export default function Home() {
           disabled={loading || !question.trim()}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {loading ? "Thinking..." : "Ask"}
+          {loading ? "..." : "Ask"}
         </button>
       </div>
 
-      {loading && (
-        <div className="flex items-center gap-3 p-6 bg-white rounded-lg border">
-          <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-          <span className="text-gray-600">Searching knowledge base...</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {error}
-        </div>
-      )}
-
-      {result && (
-        <div className="space-y-6">
-          <OracleResponse answer={result.answer} citations={result.citations} />
-
-          {result.citations.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3">Sources</h2>
-              <div className="grid gap-3">
-                {result.citations.map((citation, i) => (
-                  <CitationCard key={i} citation={citation} index={i + 1} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="mt-8 text-center">
+      <div className="mt-3 text-center">
         <a
           href="/admin"
-          className="text-sm text-gray-500 hover:text-gray-700 underline"
+          className="text-xs text-gray-400 hover:text-gray-600 underline"
         >
           Admin Dashboard
         </a>

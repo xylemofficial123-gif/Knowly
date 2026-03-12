@@ -1,8 +1,8 @@
 import uuid
 import logging
-import datetime
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
+from app.core.timezone import now_utc
 from app.models import Document, Chunk
 from app.services.embeddings import upsert_chunk
 from app.services.entity_extractor import extract_entities
@@ -39,7 +39,7 @@ def chunk_and_store(
             existing.title = title
             existing.url = url
             existing.acl = acl
-            existing.updated_at = datetime.datetime.utcnow()
+            existing.updated_at = now_utc()
             db.commit()
             doc_id = existing.id
             old_chunks = db.query(Chunk).filter(Chunk.document_id == doc_id).all()
@@ -77,6 +77,7 @@ def chunk_and_store(
                 "acl": acl,
                 "entities": entities,
                 "title": title,
+                "ingested_at": now_utc().isoformat(),
             }
             if extra_metadata:
                 payload.update(extra_metadata)

@@ -100,6 +100,19 @@ def sync_drive(self):
 
 
 @celery_app.task(bind=True, max_retries=3)
+def sync_calendar(self):
+    try:
+        logger.info("Starting calendar sync")
+        from app.services.calendar_sync import sync_calendar
+
+        count = sync_calendar()
+        logger.info(f"Calendar sync complete: {count} events")
+    except Exception as e:
+        logger.error(f"Calendar sync failed: {e}")
+        raise self.retry(exc=e, countdown=300)
+
+
+@celery_app.task(bind=True, max_retries=3)
 def reingest_clickup_task(self, task_id: str, space_id: str = "", list_id: str = ""):
     try:
         import requests

@@ -36,4 +36,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.sync_drive",
         "schedule": 1800,
     },
+    "calendar-sync-every-30min": {
+        "task": "app.workers.tasks.sync_calendar",
+        "schedule": 1800,
+    },
 }
