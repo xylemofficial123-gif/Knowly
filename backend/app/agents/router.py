@@ -77,6 +77,21 @@ class RouterAgent(BaseAgent):
         # Use unambiguous format for LLM (March 12, 2026) to avoid DD/MM vs MM/DD confusion
         current_datetime = current_dt.strftime("%B %d, %Y %H:%M IST (GMT+5:30), %A")
 
+        # Optimization: Bypass LLM for extremely simple queries
+        q_lower = context.original_query.lower().strip().strip("?!.")
+        if q_lower in ("hi", "hello", "hey", "help", "who are you", "what can you do"):
+            logger.info("Router: simple query bypass")
+            context.query_type = "onboarding"
+            context.sub_queries = []
+            return {
+                "query_type": "onboarding",
+                "complexity": "simple",
+                "sub_queries": [],
+                "search_strategy": "single_search",
+                "temporal": {"needs_recency": False, "date_from": None, "date_to": None},
+                "reasoning": "Simple greeting or help query bypass",
+            }
+
         # Build conversation context summary for follow-up questions
         conversation_context = ""
         history = context.metadata.get("conversation_history", [])

@@ -64,6 +64,21 @@ def ask(question: str, user_email: str, session_id: str = "", history: list[dict
     if not session_id:
         session_id = str(uuid.uuid4())
 
+    # Step 0: Bypass for extremely simple greetings to save LLM calls
+    q_simple = question.lower().strip().strip("?!.")
+    if q_simple in ("hi", "hello", "hey", "greetings"):
+        return {
+            "answer": "Hello! I'm your Knowledge Agent. I can help you find decisions, meeting summaries, and technical context from your company's documents. How can I help you today?",
+            "citations": [],
+            "chunks_used": [],
+            "agent": "static_bypass",
+            "query_type": "onboarding",
+            "reasoning_steps": ["Static greeting bypass"],
+            "confidence": 1.0,
+            "session_id": session_id or str(uuid.uuid4()),
+            "audit_log_id": ""
+        }
+
     # Create shared context with conversation history
     context = AgentContext(
         user_email=user_email,

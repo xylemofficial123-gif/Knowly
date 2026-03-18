@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Sidebar from "@/components/Sidebar";
 
 export const metadata: Metadata = {
-  title: "Knowledge Agent",
-  description: "AI-powered institutional knowledge system",
+  title: "Xylem | Knowledge Agent",
+  description: "Advanced institutional memory and knowledge synthesis system.",
 };
 
 export default function RootLayout({
@@ -13,7 +14,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-gray-50 text-gray-900 min-h-screen">{children}</body>
+      <body className="antialiased">
+        <div className="flex h-screen overflow-hidden">
+          <Sidebar />
+          {children}
+        </div>
+      </body>
     </html>
   );
 }

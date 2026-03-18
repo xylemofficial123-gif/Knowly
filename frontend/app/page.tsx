@@ -1,46 +1,25 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import OracleResponse from "@/components/OracleResponse";
 import CitationCard from "@/components/CitationCard";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-interface Citation {
-  url: string;
-  source: string;
-  display: string;
-  excerpt: string;
-  freshness: number;
-  score: number;
-}
-
-interface AgentResult {
-  answer: string;
-  citations: Citation[];
-  chunks_used: string[];
-  agent: string;
-  query_type: string;
-  reasoning_steps: string[];
-  confidence: number;
-  session_id: string;
-  audit_log_id: string;
-}
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  result?: AgentResult;
-}
-
 export default function Home() {
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sessionId, setSessionId] = useState("");
-  const [feedbackGiven, setFeedbackGiven] = useState<Record<number, string>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Stats could come from an API endpoint, but keeping it simple for now
+  const stats = {
+    indexedCount: "1,204",
+    verifiedOnly: false,
+    allTime: true
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -50,282 +29,202 @@ export default function Home() {
     scrollToBottom();
   }, [messages, loading]);
 
-  const handleAsk = async () => {
-    if (!question.trim() || loading) return;
+  const handleAsk = useCallback(async (explicitQuery?: string) => {
+    const q = explicitQuery || question;
+    if (!q.trim() || loading) return;
 
-    const userMessage: ChatMessage = { role: "user", content: question };
+    const userMessage = { role: "user", content: q };
     setMessages((prev) => [...prev, userMessage]);
     setQuestion("");
     setLoading(true);
-    setError("");
+
+    // Save to recent queries locally (simulates dynamic growth)
+    const recent = JSON.parse(localStorage.getItem("xylem_recent_queries") || "[]");
+    const updated = [{ text: q, time: "Just now" }, ...recent].slice(0, 10);
+    localStorage.setItem("xylem_recent_queries", JSON.stringify(updated));
+    // Dispatch event to update sidebar if needed or just rely on next load
+    window.dispatchEvent(new Event("storage"));
 
     try {
-      // Build history from previous messages (for backend context)
-      const history = [...messages, userMessage].map((m) => ({
-        role: m.role,
-        content: m.role === "assistant" ? m.result?.answer || m.content : m.content,
-      }));
-
       const res = await fetch(`${API_URL}/api/oracle/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question: userMessage.content,
-          user_email: "sachin.kurup@seedlinglabs.com",
+          question: q,
+          user_email: "chaitra.narem@seedlinglabs.com",
           session_id: sessionId,
-          history,
+          history: messages.map(m => ({ role: m.role, content: m.content }))
         }),
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Request failed");
-      }
+      if (!res.ok) throw new Error("API Request Failed");
 
-      const data: AgentResult = await res.json();
+      const data = await res.json();
       if (data.session_id) setSessionId(data.session_id);
 
-      const assistantMessage: ChatMessage = {
-        role: "assistant",
-        content: data.answer,
-        result: data,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Something went wrong";
-      setError(message);
+      setMessages((prev) => [...prev, { role: "assistant", content: data.answer, result: data }]);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [question, loading, messages, sessionId]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleAsk();
-    }
-  };
-
-  const handleNewChat = () => {
-    setMessages([]);
-    setSessionId("");
-    setError("");
-    setQuestion("");
-    setFeedbackGiven({});
-  };
-
-  const handleFeedback = async (msgIndex: number, rating: string) => {
-    const msg = messages[msgIndex];
-    if (!msg.result) return;
-
-    setFeedbackGiven((prev) => ({ ...prev, [msgIndex]: rating }));
-
-    try {
-      await fetch(`${API_URL}/api/admin/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audit_log_id: msg.result.audit_log_id || "",
-          session_id: sessionId,
-          user_email: "sachin.kurup@seedlinglabs.com",
-          query: messages[msgIndex - 1]?.content || "",
-          rating,
-          agent: msg.result.agent,
-          query_type: msg.result.query_type,
-          confidence: msg.result.confidence,
-        }),
-      });
-    } catch (e) {
-      console.error("Feedback submission failed:", e);
-    }
-  };
-
-  const agentLabel = (name: string) => {
-    const labels: Record<string, string> = {
-      research: "Research Agent",
-      onboarding: "Onboarding Agent",
-      router: "Router",
+  useEffect(() => {
+    const handleCustomQuery = (e: any) => {
+      if (e.detail) {
+        handleAsk(e.detail);
+      }
     };
-    return labels[name] || name;
-  };
-
-  const queryTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      factual: "Fact Lookup",
-      timeline: "Timeline",
-      decision_history: "Decision History",
-      who_what: "People & Roles",
-      comparison: "Comparison",
-      meeting_summary: "Meeting Summary",
-      action_items: "Action Items",
-      onboarding: "Onboarding",
-      multi_hop: "Deep Research",
-    };
-    return labels[type] || type;
-  };
+    window.addEventListener("xylem_query", handleCustomQuery);
+    return () => window.removeEventListener("xylem_query", handleCustomQuery);
+  }, [handleAsk]);
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8 flex flex-col h-screen">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold mb-1">Knowledge Agent</h1>
-          <p className="text-gray-500 text-sm">
-            Ask questions about company decisions, meetings, history, and
-            projects.
-          </p>
-        </div>
-        {messages.length > 0 && (
-          <button
-            onClick={handleNewChat}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            New Chat
+    <div className="flex-1 flex flex-col h-screen min-w-0 bg-[#fdfdff]">
+      {/* Top Header Stats Bar */}
+      <header className="h-20 border-b border-gray-100 bg-white/80 backdrop-blur-md px-10 flex items-center justify-between sticky top-0 z-40 shrink-0">
+        <h2 className="text-xl font-bold tracking-tight text-foreground">Query memory</h2>
+        <div className="flex items-center gap-3">
+          <div className="bg-accent-soft px-4 py-2.5 rounded-2xl flex items-center gap-2 border border-accent/5">
+            <span className="text-accent font-bold text-xs">{stats.indexedCount}</span>
+            <span className="text-accent/60 text-[10px] font-bold uppercase tracking-widest translate-y-[0.5px]">decisions indexed</span>
+          </div>
+          <button className="h-10 px-4 rounded-xl border border-gray-100 text-[11px] font-bold text-gray-400 flex items-center gap-2 hover:bg-gray-50 transition-all">
+            <span></span> Verified only
           </button>
-        )}
-      </div>
+          <button className="h-10 px-4 rounded-xl border border-gray-100 text-[11px] font-bold text-gray-400 flex items-center gap-2 hover:bg-gray-50 transition-all">
+            <span>📅</span> All time
+          </button>
+          <button className="h-10 px-6 rounded-xl bg-foreground text-white text-[11px] font-bold flex items-center gap-2 shadow-lg shadow-gray-200 hover:bg-gray-800 transition-all">
+            <span>🎚️</span> Filters
+          </button>
+        </div>
+      </header>
 
-      {/* Chat messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4 min-h-0">
-        {messages.length === 0 && !loading && (
-          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-            Ask a question to get started
-          </div>
-        )}
-
-        {messages.map((msg, i) => (
-          <div key={i}>
-            {msg.role === "user" ? (
-              <div className="flex justify-end">
-                <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-br-md max-w-[80%]">
-                  {msg.content}
-                </div>
+      {/* Main View Area */}
+      <main className="flex-1 overflow-y-auto custom-scrollbar relative px-10 pt-16 pb-32">
+        <div className="max-w-4xl mx-auto w-full">
+          {messages.length === 0 ? (
+            <section className="flex flex-col items-center pt-10 text-center animate-in">
+              <div className="w-20 h-20 bg-accent-soft rounded-[2.5rem] flex items-center justify-center text-3xl mb-10 shadow-inner">
+                🌱
               </div>
-            ) : (
-              <div className="space-y-3">
-                {/* Agent metadata bar */}
-                {msg.result?.agent && (
-                  <div className="flex items-center gap-3 text-xs text-gray-500">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                      {agentLabel(msg.result.agent)}
-                    </span>
-                    {msg.result.query_type && (
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-xs">
-                        {queryTypeLabel(msg.result.query_type)}
-                      </span>
-                    )}
-                    {msg.result.confidence > 0 && (
-                      <span>
-                        {Math.round(msg.result.confidence * 100)}% confidence
-                      </span>
-                    )}
-                  </div>
-                )}
+              <h1 className="text-6xl font-black text-foreground mb-6 tracking-tight">
+                Ask Xylem anything
+              </h1>
+              <p className="text-gray-400 text-lg font-medium max-w-xl leading-relaxed mb-16 px-4">
+                Query the why behind every decision, meeting, and pivot across your company's entire history.
+              </p>
 
-                <OracleResponse
-                  answer={msg.content}
-                  citations={msg.result?.citations || []}
-                />
-
-                {msg.result && msg.result.citations.length > 0 && (
-                  <details className="group">
-                    <summary className="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
-                      {msg.result.citations.length} source
-                      {msg.result.citations.length > 1 ? "s" : ""} referenced
-                    </summary>
-                    <div className="grid gap-2 mt-2">
-                      {msg.result.citations.map((citation, ci) => (
-                        <CitationCard
-                          key={ci}
-                          citation={citation}
-                          index={ci + 1}
-                        />
-                      ))}
+              {/* Dynamic Category Suggestion Grid */}
+              <div className="grid grid-cols-2 gap-5 w-full max-w-3xl">
+                {["Pricing", "Ownership", "Leadership", "Engineering"].map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => handleAsk(`What are the key decisions in ${category.toLowerCase()}?`)}
+                    className="p-8 text-left bg-white border border-gray-100 rounded-[2rem] hover:border-accent/30 hover:shadow-2xl hover:shadow-gray-100 transition-all duration-300 group"
+                  >
+                    <p className="text-[11px] font-bold text-gray-300 uppercase tracking-widest mb-3 group-hover:text-accent">
+                      {category}
+                    </p>
+                    <p className="text-lg font-bold text-foreground leading-snug group-hover:text-accent-dark">
+                      Query the history of {category.toLowerCase()} and its impact...
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <div className="space-y-12">
+              {messages.map((msg, i) => (
+                <div key={i} className="animate-in">
+                  {msg.role === "user" ? (
+                    <div className="flex justify-end pr-2">
+                      <div className="bg-foreground text-white px-8 py-5 rounded-[2.5rem] rounded-tr-none max-w-[80%] shadow-2xl shadow-gray-100 text-[17px] font-medium leading-relaxed">
+                        {msg.content}
+                      </div>
                     </div>
-                  </details>
-                )}
-
-                {/* Feedback buttons */}
-                {msg.result && (
-                  <div className="flex items-center gap-2 mt-1">
-                    {feedbackGiven[i] ? (
-                      <span className="text-xs text-gray-400">
-                        {feedbackGiven[i] === "helpful" ? "Marked as helpful" : "Marked as not helpful"} — thanks!
-                      </span>
-                    ) : (
-                      <>
-                        <span className="text-xs text-gray-400">Was this helpful?</span>
-                        <button
-                          onClick={() => handleFeedback(i, "helpful")}
-                          className="px-2 py-0.5 text-xs text-green-600 border border-green-200 rounded hover:bg-green-50 transition-colors"
-                        >
-                          Yes
-                        </button>
-                        <button
-                          onClick={() => handleFeedback(i, "not_helpful")}
-                          className="px-2 py-0.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
-                        >
-                          No
-                        </button>
-                      </>
-                    )}
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="flex items-center gap-3 ml-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse shadow-[0_0_10px_rgba(90,78,251,0.5)]"></span>
+                        <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest tracking-[0.2em]">Xylem Intelligence</span>
+                      </div>
+                      <OracleResponse answer={msg.content} citations={msg.result?.citations || []} />
+                      {msg.result?.citations?.length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-2 mt-4">
+                          {msg.result.citations.map((cite: any, ci: number) => (
+                            <CitationCard key={ci} citation={cite} index={ci + 1} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {loading && (
+                <div className="flex items-center gap-5 p-10 bg-white border border-dashed border-gray-200 rounded-[2rem] animate-pulse ml-2">
+                  <div className="flex gap-2">
+                    {[1, 2, 3].map((d) => (
+                      <span key={d} className="w-2.5 h-2.5 rounded-full bg-accent"></span>
+                    ))}
                   </div>
-                )}
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Extracting Knowledge Assets...</span>
+                </div>
+              )}
+              {error && (
+                <div className="p-6 bg-red-50 text-red-600 rounded-3xl border border-red-100 text-sm font-medium animate-in">
+                  ⚠️ {error}
+                </div>
+              )}
+              <div ref={messagesEndRef} className="h-32" />
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Floating Bottom Input Bar */}
+      <div className="max-w-4xl mx-auto w-full px-10 pb-12 sticky bottom-0 left-0 right-0 pointer-events-none">
+        <div className="w-full bg-white/95 backdrop-blur-sm rounded-[2.5rem] border border-gray-100 shadow-[0_40px_80px_-20px_rgba(0,0,0,0.15)] p-2 pointer-events-auto group focus-within:ring-4 focus-within:ring-accent-soft transition-all duration-500">
+          <div className="flex items-end gap-3 px-6 pt-4 pb-4">
+            <button className="h-12 w-12 flex items-center justify-center text-gray-300 hover:bg-gray-50 rounded-2xl transition-all">
+              📎
+            </button>
+            <textarea
+              className="flex-1 bg-transparent py-4 text-[17px] font-medium text-foreground placeholder:text-gray-300 resize-none focus:outline-none min-h-[60px] max-h-40"
+              placeholder="Ask about decisions, history, or rationale..."
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleAsk())}
+              rows={1}
+            />
+            <button
+              onClick={() => handleAsk()}
+              disabled={loading || !question.trim()}
+              className="h-14 w-14 bg-accent text-white rounded-2xl flex items-center justify-center text-2xl shadow-xl shadow-accent/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-20 disabled:shadow-none"
+            >
+              ➔
+            </button>
+          </div>
+
+          {/* Active Sources Bar */}
+          <div className="flex items-center gap-6 px-8 pb-4 pt-2 border-t border-gray-50/50 mt-1">
+            {[
+              { name: "Slack", color: "bg-purple-400" },
+              { name: "Notion", color: "bg-gray-400" },
+              { name: "Drive", color: "bg-orange-400" },
+              { name: "Transcripts", color: "bg-green-400" }
+            ].map((s) => (
+              <div key={s.name} className="flex items-center gap-2 group cursor-pointer">
+                <div className={`w-2 h-2 rounded-full ${s.color} transition-all group-hover:scale-150`}></div>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:text-foreground">{s.name}</span>
               </div>
-            )}
+            ))}
+            <div className="ml-auto text-[10px] font-bold text-gray-200 uppercase tracking-tighter">Enter ↵ to send · Shift+Enter new line</div>
           </div>
-        ))}
-
-        {loading && (
-          <div className="flex items-center gap-3 p-4 bg-white rounded-lg border">
-            <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-            <span className="text-gray-500 text-sm">
-              Agents analyzing your question...
-            </span>
-          </div>
-        )}
-
-        {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {error}
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
+        </div>
       </div>
-
-      {/* Input bar — fixed at bottom */}
-      <div className="flex gap-3 pt-3 border-t border-gray-200">
-        <input
-          type="text"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={
-            messages.length > 0
-              ? "Ask a follow-up..."
-              : "What happened in the standup? Who edited X? Brief me on project Y..."
-          }
-          className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
-        <button
-          onClick={handleAsk}
-          disabled={loading || !question.trim()}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? "..." : "Ask"}
-        </button>
-      </div>
-
-      <div className="mt-3 text-center">
-        <a
-          href="/admin"
-          className="text-xs text-gray-400 hover:text-gray-600 underline"
-        >
-          Admin Dashboard
-        </a>
-      </div>
-    </main>
+    </div>
   );
 }

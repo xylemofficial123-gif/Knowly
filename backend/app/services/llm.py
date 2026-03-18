@@ -24,23 +24,26 @@ openrouter_client = openai.OpenAI(
 
 # Gemini models to try (in order)
 GEMINI_MODELS = [
-    "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite-preview-09-2025",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-flash-latest",
 ]
 
 # Groq models — fast, free, high limits (14,400 req/day)
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "gemma2-9b-it",
-    "llama-3.1-8b-instant",
 ]
 
 # Free OpenRouter fallback models (last resort)
 FALLBACK_MODELS = [
-    "google/gemma-3-27b-it:free",
-    "google/gemma-3-4b-it:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "google/gemma-2-9b-it:free",
+    "mistralai/mistral-7b-instruct:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "microsoft/phi-3-medium-128k-instruct:free",
 ]
 
 # Track rate limits per model to avoid re-hitting them
@@ -51,7 +54,7 @@ def _is_rate_limited(model: str) -> bool:
     return time.time() < _model_rate_limited_until.get(model, 0)
 
 
-def _mark_rate_limited(model: str, cooldown: int = 120):
+def _mark_rate_limited(model: str, cooldown: int = 60):
     _model_rate_limited_until[model] = time.time() + cooldown
 
 
@@ -114,7 +117,7 @@ def generate(prompt: str, max_tokens: int = 2048) -> str:
             except Exception as e:
                 if "429" in str(e):
                     _mark_rate_limited(f"or:{model}", cooldown=60)
-                logger.debug(f"Fallback {model} failed: {e}")
+                logger.warning(f"Fallback {model} failed: {e}")
                 continue
 
     raise RuntimeError("All LLM providers exhausted. Try again in a few minutes.")

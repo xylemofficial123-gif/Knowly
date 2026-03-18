@@ -241,19 +241,25 @@ class ResearchAgent(BaseAgent):
         query = context.original_query
         query_type = context.query_type
 
+        # Always include the original query
+        angles = [query]
+
+        # Optimization: Skip LLM expansion for very short queries or simple factual lookups
+        words = query.split()
+        if len(words) < 4 or query_type == "factual":
+            return angles
+
         # Let the LLM generate search angles tailored to the actual query
         angle_prompt = (
-            f"Generate 2-3 short search queries (each under 10 words) to find relevant "
+            f"Generate 2 short search queries (each under 10 words) to find relevant "
             f"documents for this question. Return ONLY a JSON array of strings.\n\n"
             f"Question: {query}\n"
             f"Query type: {query_type}\n\n"
             f"JSON array:"
         )
 
-        angles = [query]  # Always include the original query
-
         try:
-            raw = generate(angle_prompt, max_tokens=256).strip()
+            raw = generate(angle_prompt, max_tokens=128).strip()
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
@@ -261,25 +267,17 @@ class ResearchAgent(BaseAgent):
             import json
             generated = json.loads(raw.strip())
             if isinstance(generated, list):
-                angles.extend([str(a) for a in generated[:3]])
+                angles.extend([str(a) for a in generated[:2]])
         except Exception:
-            # Fallback to rule-based angles if LLM fails
+            # Fallback to rule-based angles if LLM fails or is rate-limited
             if query_type in ("meeting_summary", "timeline"):
-                angles.append("daily standup meeting notes summary")
                 angles.append(f"meeting decisions action items {query}")
-            elif query_type == "action_items":
-                angles.append("action items tasks follow-up")
-            elif query_type == "comparison":
-                angles.append(f"advantages benefits {query}")
-                angles.append(f"disadvantages problems {query}")
             elif query_type == "onboarding":
-                angles.append(f"project overview history {query}")
-                angles.append(f"key decisions rationale {query}")
+                angles.append(f"project overview help {query}")
             elif query_type == "multi_hop":
                 angles.append(f"background context {query}")
-                angles.append(f"decisions outcomes {query}")
 
-        return angles[:4]
+        return angles[:3]  # Limit to 3 angles total to save embeddings calls too
 
     @staticmethod
     def _get_decision_context(query: str) -> str:
