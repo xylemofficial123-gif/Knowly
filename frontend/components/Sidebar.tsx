@@ -40,8 +40,8 @@ export default function Sidebar() {
     return () => window.removeEventListener("storage", loadQueries);
   }, []);
 
-  const handleQueryClick = (text: string) => {
-    window.dispatchEvent(new CustomEvent("xylem_query", { detail: text }));
+  const handleQueryClick = (item: any) => {
+    window.dispatchEvent(new CustomEvent("xylem_query", { detail: item }));
   };
 
   return (
@@ -99,7 +99,7 @@ export default function Sidebar() {
               recentQueries.map((item, i) => (
                 <button
                   key={i}
-                  onClick={() => handleQueryClick(item.text)}
+                  onClick={() => handleQueryClick(item)}
                   className="w-full text-left px-4 py-3 rounded-2xl hover:bg-gray-50 group transition-all"
                 >
                   <p className="text-[13px] font-bold text-gray-700 line-clamp-1 mb-1 group-hover:text-foreground">

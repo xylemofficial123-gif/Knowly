@@ -29,21 +29,22 @@ export default function Home() {
     scrollToBottom();
   }, [messages, loading]);
 
-  const handleAsk = useCallback(async (explicitQuery?: string) => {
+  const handleAsk = useCallback(async (explicitQuery?: string, cachedData?: any) => {
     const q = explicitQuery || question;
     if (!q.trim() || loading) return;
+
+    // If we have cached data, display it instantly and skip the API call
+    if (cachedData) {
+      setMessages([{ role: "user", content: q }, { role: "assistant", content: cachedData.answer, result: cachedData }]);
+      if (cachedData.session_id) setSessionId(cachedData.session_id);
+      setQuestion("");
+      return;
+    }
 
     const userMessage = { role: "user", content: q };
     setMessages((prev) => [...prev, userMessage]);
     setQuestion("");
     setLoading(true);
-
-    // Save to recent queries locally (simulates dynamic growth)
-    const recent = JSON.parse(localStorage.getItem("xylem_recent_queries") || "[]");
-    const updated = [{ text: q, time: "Just now" }, ...recent].slice(0, 10);
-    localStorage.setItem("xylem_recent_queries", JSON.stringify(updated));
-    // Dispatch event to update sidebar if needed or just rely on next load
-    window.dispatchEvent(new Event("storage"));
 
     try {
       const res = await fetch(`${API_URL}/api/oracle/ask`, {
@@ -63,6 +64,12 @@ export default function Home() {
       if (data.session_id) setSessionId(data.session_id);
 
       setMessages((prev) => [...prev, { role: "assistant", content: data.answer, result: data }]);
+
+      // Save full result to recent queries locally
+      const recent = JSON.parse(localStorage.getItem("xylem_recent_queries") || "[]");
+      const updated = [{ text: q, time: "Just now", result: data }, ...recent].slice(0, 10);
+      localStorage.setItem("xylem_recent_queries", JSON.stringify(updated));
+      window.dispatchEvent(new Event("storage"));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -73,7 +80,12 @@ export default function Home() {
   useEffect(() => {
     const handleCustomQuery = (e: any) => {
       if (e.detail) {
-        handleAsk(e.detail);
+        // detail can now be a string (legacy) or an object { text, result }
+        if (typeof e.detail === "string") {
+          handleAsk(e.detail);
+        } else {
+          handleAsk(e.detail.text, e.detail.result);
+        }
       }
     };
     window.addEventListener("xylem_query", handleCustomQuery);
