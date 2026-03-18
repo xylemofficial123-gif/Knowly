@@ -50,10 +50,6 @@ def get_user_slack_channels(user_email: str) -> list[str]:
 
 
 def user_can_see_chunk(user_email: str, chunk_acl: list) -> bool:
-    # Local development bypass
-    if getattr(settings, "BYPASS_ACL", False):
-        return True
-
     if not chunk_acl:
         return True
     if "public" in chunk_acl:
