@@ -78,3 +78,13 @@ class AnswerFeedback(Base):
     query_type = Column(String)
     confidence = Column(Float)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class GlobalSettings(Base):
+    __tablename__ = "global_settings"
+    id = Column(String, primary_key=True, default="default")
+    # List of enabled sources, e.g., ["drive", "calendar", "slack", "meet", "clickup"]
+    enabled_sources = Column(JSON, default=list)
+    # Target Google Drive folder IDs
+    google_drive_folder_ids = Column(JSON, default=list)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

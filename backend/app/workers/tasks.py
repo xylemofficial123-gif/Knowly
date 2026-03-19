@@ -1,5 +1,6 @@
 import logging
 from app.workers.celery_app import celery_app
+from app.core.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -19,28 +20,48 @@ def run_decision_extraction(self):
 
 @celery_app.task(bind=True, max_retries=3)
 def sync_clickup(self):
+    db = SessionLocal()
     try:
+        from app.models import GlobalSettings
+        settings = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+        if settings and "clickup" not in (settings.enabled_sources or []):
+            logger.info("ClickUp sync skipped (disabled in settings)")
+            return 0
+
         logger.info("Starting hourly ClickUp sync")
         from app.services.clickup_ingestion import ingest_all_clickup
 
         count = ingest_all_clickup()
         logger.info(f"ClickUp sync complete: {count} tasks")
+        return count
     except Exception as e:
         logger.error(f"ClickUp sync failed: {e}")
         raise self.retry(exc=e, countdown=120)
+    finally:
+        db.close()
 
 
 @celery_app.task(bind=True, max_retries=3)
 def sync_meet_transcripts(self):
+    db = SessionLocal()
     try:
-        logger.info("Starting daily Meet transcript sync")
+        from app.models import GlobalSettings
+        settings = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+        if settings and "meet" not in (settings.enabled_sources or []):
+            logger.info("Meet transcript sync skipped (disabled in settings)")
+            return 0
+
+        logger.info("Starting sync for Meet transcripts")
         from app.services.meet_ingestion import ingest_drive_transcripts
 
         count = ingest_drive_transcripts()
         logger.info(f"Meet sync complete: {count} transcripts")
+        return count
     except Exception as e:
         logger.error(f"Meet transcript sync failed: {e}")
         raise self.retry(exc=e, countdown=300)
+    finally:
+        db.close()
 
 
 @celery_app.task(bind=True, max_retries=3)
@@ -88,28 +109,50 @@ def process_decision_extraction_for_message(self, text: str, chunk_id: str, sour
 
 @celery_app.task(bind=True, max_retries=3)
 def sync_drive(self):
+    db = SessionLocal()
     try:
-        logger.info("Starting daily Drive sync")
+        from app.models import GlobalSettings
+        settings = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+        if settings and "drive" not in (settings.enabled_sources or []):
+            logger.info("Drive sync skipped (disabled in settings)")
+            return 0
+
+        logger.info("Starting background Drive sync")
         from app.services.drive_ingestion import ingest_all_drive
 
-        count = ingest_all_drive()
+        # Pass folder IDs from DB if they exist
+        folder_ids = settings.google_drive_folder_ids if settings else None
+        count = ingest_all_drive(folder_ids=folder_ids)
         logger.info(f"Drive sync complete: {count} files")
+        return count
     except Exception as e:
         logger.error(f"Drive sync failed: {e}")
         raise self.retry(exc=e, countdown=300)
+    finally:
+        db.close()
 
 
 @celery_app.task(bind=True, max_retries=3)
 def sync_calendar(self):
+    db = SessionLocal()
     try:
-        logger.info("Starting calendar sync")
-        from app.services.calendar_sync import sync_calendar
+        from app.models import GlobalSettings
+        settings = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+        if settings and "calendar" not in (settings.enabled_sources or []):
+            logger.info("Calendar sync skipped (disabled in settings)")
+            return 0
 
-        count = sync_calendar()
+        logger.info("Starting background calendar sync")
+        from app.services.calendar_sync import sync_calendar as run_calendar_sync
+
+        count = run_calendar_sync()
         logger.info(f"Calendar sync complete: {count} events")
+        return count
     except Exception as e:
         logger.error(f"Calendar sync failed: {e}")
         raise self.retry(exc=e, countdown=300)
+    finally:
+        db.close()
 
 
 @celery_app.task(bind=True, max_retries=3)

@@ -9,6 +9,7 @@ router = APIRouter(prefix="/api/ingest", tags=["ingestion"])
 class TriggerRequest(BaseModel):
     source: str = "all"
     team_id: str = ""
+    folder_ids: list[str] | None = None
 
 
 @router.post("/trigger")
@@ -47,7 +48,7 @@ def trigger_ingestion(req: TriggerRequest):
             from app.services.drive_ingestion import ingest_all_drive
 
             try:
-                count = ingest_all_drive()
+                count = ingest_all_drive(folder_ids=req.folder_ids)
                 results["drive"] = {"status": "ok", "files_ingested": count}
             except Exception as e:
                 results["drive"] = {"status": "error", "detail": str(e)}
@@ -70,4 +71,15 @@ def trigger_ingestion(req: TriggerRequest):
         raise
     except Exception as e:
         logger.error(f"Ingestion trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+@router.get("/drive/folders")
+def list_folders():
+    """List available Google Drive folders for selection."""
+    from app.services.drive_ingestion import list_drive_folders
+
+    try:
+        folders = list_drive_folders()
+        return {"status": "ok", "folders": folders}
+    except Exception as e:
+        logger.error(f"Failed to list Drive folders: {e}")
         raise HTTPException(status_code=500, detail=str(e))

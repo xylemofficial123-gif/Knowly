@@ -40,6 +40,22 @@ SUPPORTED_TYPES = {
         "export_mime": None,
         "label": "Markdown",
     },
+    "text/x-markdown": {
+        "export_mime": None,
+        "label": "Markdown",
+    },
+    "text/x-python": {
+        "export_mime": None,
+        "label": "Python script",
+    },
+    "application/x-python-code": {
+        "export_mime": None,
+        "label": "Python script",
+    },
+    "application/octet-stream": {
+        "export_mime": None,
+        "label": "Binary/Text file",
+    },
 }
 
 
@@ -113,6 +129,12 @@ def _extract_text_from_pdf(content: bytes) -> str:
 def _get_file_text(service, file_info: dict) -> str:
     file_id = file_info["id"]
     mime_type = file_info.get("mimeType", "")
+    name = file_info.get("name", "").lower()
+
+    # Special handling for octet-stream: only allow known extensions
+    if mime_type == "application/octet-stream":
+        if not (name.endswith(".md") or name.endswith(".txt") or name.endswith(".py")):
+            return ""
 
     type_config = SUPPORTED_TYPES.get(mime_type)
     if not type_config:
@@ -139,28 +161,107 @@ def _get_file_text(service, file_info: dict) -> str:
         return str(content)
 
 
-def list_drive_files(folder_id: str = None, max_results: int = 500) -> list[dict]:
+def _get_folder_tree(service, root_ids: list[str]) -> set[str]:
+    """Recursively find all subfolder IDs for a list of root folders."""
+    all_folders = set(root_ids)
+    to_process = list(root_ids)
+
+    while to_process:
+        current_id = to_process.pop(0)
+        query = f"'{current_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        
+        page_token = None
+        while True:
+            resp = (
+                service.files()
+                .list(
+                    q=query,
+                    fields="nextPageToken, files(id)",
+                    pageToken=page_token,
+                )
+                .execute()
+            )
+            for f in resp.get("files", []):
+                f_id = f["id"]
+                if f_id not in all_folders:
+                    all_folders.add(f_id)
+                    to_process.append(f_id)
+            
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+                
+    return all_folders
+
+
+def list_drive_files(
+    folder_id: str = None, 
+    folder_ids: list[str] = None, 
+    max_results: int = 500,
+    recursive: bool = True
+) -> list[dict]:
     service = _get_drive_service()
 
     mime_queries = [f"mimeType='{mt}'" for mt in SUPPORTED_TYPES.keys()]
     mime_filter = "(" + " or ".join(mime_queries) + ")"
 
-    query = mime_filter
-    if folder_id:
-        query = f"'{folder_id}' in parents and " + query
+    # If folder_ids is provided, we'll collect from all of them
+    entry_points = folder_ids if folder_ids else ([folder_id] if folder_id else [])
+    entry_points = [eid for eid in entry_points if eid]
+    
+    # If recursive, find the full folder tree
+    if recursive and entry_points:
+        target_folders = list(_get_folder_tree(service, entry_points))
+        logger.info(f"Recursive scan: found {len(target_folders)} folders in tree")
+    else:
+        target_folders = entry_points if entry_points else [None]
+    
+    all_results = []
+    # If we have many folders, we can chunk them in groups of 10-15 to keep query length safe
+    # But for now, let's keep it simple and iterate
+    for f_id in target_folders:
+        query = mime_filter
+        if f_id:
+            query = f"'{f_id}' in parents and " + query
+        query += " and trashed=false"
 
-    query += " and trashed=false"
+        results = []
+        page_token = None
+        while len(all_results) + len(results) < max_results:
+            resp = (
+                service.files()
+                .list(
+                    q=query,
+                    fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, webViewLink, lastModifyingUser, owners)",
+                    pageSize=min(100, max_results - (len(all_results) + len(results))),
+                    pageToken=page_token,
+                )
+                .execute()
+            )
+            results.extend(resp.get("files", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        all_results.extend(results)
+        if len(all_results) >= max_results:
+            break
 
+    return all_results
+
+
+def list_drive_folders() -> list[dict]:
+    """List all non-trashed folders in the user's Drive."""
+    service = _get_drive_service()
+    query = "mimeType='application/vnd.google-apps.folder' and trashed=false"
+    
     results = []
     page_token = None
-
-    while len(results) < max_results:
+    while True:
         resp = (
             service.files()
             .list(
                 q=query,
-                fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, webViewLink, lastModifyingUser, owners)",
-                pageSize=min(100, max_results - len(results)),
+                fields="nextPageToken, files(id, name)",
                 pageToken=page_token,
             )
             .execute()
@@ -169,7 +270,7 @@ def list_drive_files(folder_id: str = None, max_results: int = 500) -> list[dict
         page_token = resp.get("nextPageToken")
         if not page_token:
             break
-
+            
     return results
 
 
@@ -302,11 +403,30 @@ def ingest_drive_file(file_info: dict) -> bool:
     return True
 
 
-def ingest_all_drive(folder_id: str = None) -> int:
+def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None) -> int:
     from app.core.database import SessionLocal
     from app.models import Document
 
-    files = list_drive_files(folder_id=folder_id)
+    # Priority: 
+    # 1. folder_ids (list passed from tasks or API)
+    # 2. folder_id (single string passed from API)
+    # 3. settings.google_drive_folder_ids (from .env)
+    
+    target_ids = None
+    if folder_ids is not None:
+        target_ids = folder_ids
+    elif folder_id is not None:
+        target_ids = [folder_id]
+    else:
+        target_ids = settings.google_drive_folder_ids
+
+    if target_ids:
+        logger.info(f"Scanning for files in folders: {target_ids}")
+        files = list_drive_files(folder_ids=target_ids)
+    else:
+        logger.info("Scanning all Drive files (no folder restriction)")
+        files = list_drive_files()
+
     logger.info(f"Found {len(files)} Drive files to check")
 
     # Build a lookup of existing documents by source_id to skip unchanged files

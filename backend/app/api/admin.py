@@ -5,7 +5,7 @@ from sqlalchemy import func, case
 import logging
 
 from app.core.database import SessionLocal
-from app.models import AuditLog, DecisionRecord, AnswerFeedback
+from app.models import AuditLog, DecisionRecord, AnswerFeedback, GlobalSettings
 from app.models.review_queue import ReviewQueueItem
 
 logger = logging.getLogger(__name__)
@@ -465,5 +465,57 @@ def get_metrics():
             "query_type_usage": query_type_usage,
             "daily_usage": daily_usage,
         }
+    finally:
+        db.close()
+# --- Global Settings ---
+
+class SettingsUpdate(BaseModel):
+    enabled_sources: list[str] | None = None
+    google_drive_folder_ids: list[str] | None = None
+
+
+@router.get("/settings")
+def get_settings():
+    db = SessionLocal()
+    try:
+        settings = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+        if not settings:
+            # Create default if not exists
+            settings = GlobalSettings(
+                id="default",
+                enabled_sources=["drive"],
+                google_drive_folder_ids=[]
+            )
+            db.add(settings)
+            db.commit()
+            db.refresh(settings)
+        return {
+            "enabled_sources": settings.enabled_sources,
+            "google_drive_folder_ids": settings.google_drive_folder_ids,
+        }
+    finally:
+        db.close()
+
+
+@router.patch("/settings")
+def update_settings(req: SettingsUpdate):
+    db = SessionLocal()
+    try:
+        settings = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+        if not settings:
+            settings = GlobalSettings(id="default")
+            db.add(settings)
+        
+        if req.enabled_sources is not None:
+            settings.enabled_sources = req.enabled_sources
+        if req.google_drive_folder_ids is not None:
+            settings.google_drive_folder_ids = req.google_drive_folder_ids
+            
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Update settings failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

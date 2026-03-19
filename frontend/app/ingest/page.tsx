@@ -56,14 +56,27 @@ interface Metrics {
   daily_usage: { date: string; count: number }[];
 }
 
+interface IngestionSettings {
+  enabled_sources: string[];
+  google_drive_folder_ids: string[];
+}
+
+interface DriveFolder {
+  id: string;
+  name: string;
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback">(
-    "metrics"
+  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion">(
+    "ingestion"
   );
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
   const [feedbackList, setFeedbackList] = useState<FeedbackItem[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [settings, setSettings] = useState<IngestionSettings | null>(null);
+  const [availableFolders, setAvailableFolders] = useState<DriveFolder[]>([]);
+  const [newFolderId, setNewFolderId] = useState("");
   const [loading, setLoading] = useState(false);
 
   const fetchAuditLog = async () => {
@@ -120,11 +133,38 @@ export default function AdminPage() {
     }
   };
 
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/settings`);
+      const data = await res.json();
+      setSettings(data);
+    } catch (e) {
+      console.error("Failed to fetch settings:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAvailableFolders = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/ingest/drive/folders`);
+      const data = await res.json();
+      setAvailableFolders(data.folders || []);
+    } catch (e) {
+      console.error("Failed to fetch available folders:", e);
+    }
+  };
+
   useEffect(() => {
     if (tab === "audit") fetchAuditLog();
     else if (tab === "review") fetchReviewQueue();
     else if (tab === "feedback") fetchFeedback();
     else if (tab === "metrics") fetchMetrics();
+    else if (tab === "ingestion") {
+      fetchSettings();
+      fetchAvailableFolders();
+    }
   }, [tab]);
 
   const handleReview = async (id: string, action: "approve" | "reject") => {
@@ -141,17 +181,58 @@ export default function AdminPage() {
     }
   };
 
+  const updateSettings = async (updates: Partial<IngestionSettings>) => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        setSettings((prev) => (prev ? { ...prev, ...updates } : null));
+      }
+    } catch (e) {
+      console.error("Failed to update settings:", e);
+    }
+  };
+
+  const toggleSource = (source: string) => {
+    if (!settings) return;
+    const current = settings.enabled_sources || [];
+    const next = current.includes(source)
+      ? current.filter((s) => s !== source)
+      : [...current, source];
+    updateSettings({ enabled_sources: next });
+  };
+
+  const addFolder = (id: string) => {
+    if (!settings || !id) return;
+    const current = settings.google_drive_folder_ids || [];
+    if (current.includes(id)) return;
+    updateSettings({ google_drive_folder_ids: [...current, id] });
+    setNewFolderId("");
+  };
+
+  const removeFolder = (id: string) => {
+    if (!settings) return;
+    const current = settings.google_drive_folder_ids || [];
+    updateSettings({
+      google_drive_folder_ids: current.filter((fid) => fid !== id),
+    });
+  };
+
   const tabs = [
     { key: "metrics", label: "Metrics" },
     { key: "audit", label: "Audit Log" },
     { key: "review", label: "Review Queue" },
     { key: "feedback", label: "Feedback" },
+    { key: "ingestion", label: "Ingestion" },
   ] as const;
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+        <h1 className="text-2xl font-bold">Ingestion Management</h1>
         <a href="/" className="text-sm text-blue-600 hover:underline">
           &larr; Back to Oracle
         </a>
@@ -478,6 +559,150 @@ export default function AdminPage() {
               No feedback collected yet. Users can rate answers in the chat.
             </div>
           )}
+        </div>
+      )}
+
+      {/* Ingestion Tab */}
+      {tab === "ingestion" && !loading && settings && (
+        <div className="space-y-8">
+          {/* Sources Section */}
+          <section className="bg-white rounded-xl border p-6">
+            <h2 className="text-lg font-semibold mb-4 text-gray-800">
+              Ingestion Sources
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                { id: "drive", label: "Google Drive" },
+                { id: "calendar", label: "Google Calendar" },
+                { id: "meet", label: "Meet Transcripts" },
+                { id: "slack", label: "Slack" },
+                { id: "clickup", label: "ClickUp" },
+              ].map((source) => (
+                <div
+                  key={source.id}
+                  className="flex items-center justify-between p-4 rounded-lg border bg-gray-50 bg-opacity-50"
+                >
+                  <span className="font-medium text-gray-700">
+                    {source.label}
+                  </span>
+                  <button
+                    onClick={() => toggleSource(source.id)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                        settings.enabled_sources?.includes(source.id)
+                        ? "bg-blue-600"
+                        : "bg-gray-300"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        settings.enabled_sources?.includes(source.id)
+                          ? "translate-x-6"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Google Drive Configuration */}
+          <section className="bg-white rounded-xl border p-6">
+            <h2 className="text-lg font-semibold mb-4 text-gray-800">
+              Google Drive Configuration
+            </h2>
+            <div className="space-y-6">
+              {/* Folder Lineage */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-3">
+                  Restricted Folder IDs
+                </label>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {(settings.google_drive_folder_ids || []).map((id) => (
+                    <div
+                      key={id}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full border border-blue-100 text-sm group"
+                    >
+                      <span className="font-mono">{id}</span>
+                      <button
+                        onClick={() => removeFolder(id)}
+                        className="text-blue-400 hover:text-red-500 transition-colors"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                  {(settings.google_drive_folder_ids || []).length === 0 && (
+                    <span className="text-sm text-gray-400 italic">
+                      No folders restricted. Scanning entire Drive (default).
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newFolderId}
+                    onChange={(e) => setNewFolderId(e.target.value)}
+                    placeholder="Enter Folder ID (e.g. 1MMQSKn8...)"
+                    className="flex-1 px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+                  />
+                  <button
+                    onClick={() => addFolder(newFolderId)}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    Add Folder
+                  </button>
+                </div>
+              </div>
+
+              {/* Discovery List */}
+              <div className="pt-4 border-t">
+                <label className="block text-sm font-medium text-gray-500 mb-3">
+                  Available Folders (Quick Select)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {availableFolders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      onClick={() => addFolder(folder.id)}
+                      disabled={settings.google_drive_folder_ids?.includes(folder.id)}
+                      className={`text-left p-3 rounded-lg border text-sm transition-all shadow-sm ${
+                        settings.google_drive_folder_ids?.includes(folder.id)
+                          ? "bg-gray-100 text-gray-400 border-gray-200 cursor-default"
+                          : "hover:border-blue-300 hover:bg-blue-50 text-gray-600"
+                      }`}
+                    >
+                      <div className="font-medium truncate">{folder.name}</div>
+                      <div className="text-xs font-mono opacity-60 truncate">
+                        {folder.id}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Action Footer */}
+          <div className="flex justify-start pt-4">
+            <button 
+                onClick={() => {
+                    fetch(`${API_URL}/api/ingest/trigger`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ source: "drive" })
+                    });
+                    alert("Ingestion triggered! Check backend logs for progress.");
+                }}
+                className="px-6 py-3 bg-gray-800 text-white rounded-xl text-sm font-medium hover:bg-black transition-colors shadow-lg flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Trigger Sync Now
+            </button>
+          </div>
         </div>
       )}
     </main>
