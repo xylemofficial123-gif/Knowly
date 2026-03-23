@@ -1,6 +1,7 @@
 import json
 import logging
 import datetime
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -61,7 +62,7 @@ def extract_decisions_from_text(text: str) -> list[dict]:
         return []
 
 
-def check_decision_reversal(new_decision_text: str, db: Session) -> DecisionRecord | None:
+def check_decision_reversal(new_decision_text: str, db: Session) -> Optional[DecisionRecord]:
     """Check if a new decision contradicts an existing active decision.
 
     Uses semantic similarity (≥0.80) + LLM confirmation to detect reversals.

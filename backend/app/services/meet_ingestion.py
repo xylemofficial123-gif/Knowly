@@ -171,7 +171,12 @@ def generate_meeting_summary(text: str, title: str) -> dict:
         }
 
 
-def _build_enriched_text(original_text: str, title: str, summary_data: dict) -> str:
+def _build_enriched_text(
+    original_text: str,
+    title: str,
+    summary_data: dict,
+    discrepancy_text: str = "",
+) -> str:
     """Combine original transcript with structured summary for storage."""
     parts = [f"Meeting: {title}", ""]
 
@@ -231,6 +236,12 @@ def _build_enriched_text(original_text: str, title: str, summary_data: dict) -> 
         parts.append("=== FOLLOW-UPS NEEDED ===")
         for f in follow_ups:
             parts.append(f"- {f['item']} → {f.get('who', '?')}: {f.get('reason', '')}")
+        parts.append("")
+
+    # Discrepancy analysis (if any)
+    if discrepancy_text:
+        parts.append("")
+        parts.append(discrepancy_text)
         parts.append("")
 
     # Original transcript
@@ -308,8 +319,23 @@ def ingest_meet_transcript(file_info: dict) -> dict:
     logger.info(f"Generating summary for: {title}")
     summary_data = generate_meeting_summary(text, title)
 
-    # Build enriched text with summary + original
-    enriched_text = _build_enriched_text(text, title, summary_data)
+    # Run discrepancy detection against existing decisions
+    discrepancy_text = ""
+    try:
+        from app.services.meet_discrepancy import detect_discrepancies
+        new_decisions = summary_data.get("key_decisions", [])
+        if new_decisions:
+            report = detect_discrepancies(new_decisions, title)
+            discrepancy_text = report.to_text()
+            if report.contradictions:
+                logger.warning(
+                    f"Meeting '{title}' has {len(report.contradictions)} contradiction(s) with past decisions"
+                )
+    except Exception as e:
+        logger.warning(f"Discrepancy detection failed (non-fatal): {e}")
+
+    # Build enriched text with summary + discrepancies + original
+    enriched_text = _build_enriched_text(text, title, summary_data, discrepancy_text)
 
     # Build metadata
     last_editor = file_info.get("lastModifyingUser", {})
@@ -333,6 +359,7 @@ def ingest_meet_transcript(file_info: dict) -> dict:
     # Store in knowledge base
     acl = attendees if attendees else ["public"]
 
+    # Store the full enriched text (decisions + actions + transcript)
     chunk_and_store(
         source="meet",
         source_id=f"meet:{file_id}",
@@ -341,7 +368,34 @@ def ingest_meet_transcript(file_info: dict) -> dict:
         acl=acl,
         title=title,
         extra_metadata=metadata,
+        chunk_type="full_text",
     )
+
+    # Store the summary as a separate high-priority chunk so agents surface it first
+    summary_text = summary_data.get("summary", "")
+    if summary_text and len(summary_text) > 20:
+        summary_chunk_text = f"Meeting Summary — {title}\n\n{summary_text}"
+        if summary_data.get("key_decisions"):
+            summary_chunk_text += "\n\nKey Decisions:\n" + "\n".join(
+                f"- {d['decision']}" for d in summary_data["key_decisions"]
+            )
+        if summary_data.get("key_takeaways"):
+            summary_chunk_text += "\n\nKey Takeaways:\n" + "\n".join(
+                f"- {t}" for t in summary_data["key_takeaways"]
+            )
+        if discrepancy_text:
+            summary_chunk_text += f"\n\n{discrepancy_text}"
+
+        chunk_and_store(
+            source="meet",
+            source_id=f"meet:{file_id}:summary",
+            text=summary_chunk_text,
+            url=url,
+            acl=acl,
+            title=f"{title} [Summary]",
+            extra_metadata={**metadata, "is_summary": True},
+            chunk_type="summary",
+        )
 
     # Store action items and decisions in the review queue / decision records
     _store_action_items(summary_data, title, url)

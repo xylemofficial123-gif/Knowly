@@ -13,6 +13,7 @@ from app.api.oracle import router as oracle_router
 from app.api.admin import router as admin_router
 from app.api.transcripts import router as transcripts_router
 from app.api.ingestion import router as ingestion_router
+from app.api.users import router as users_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -263,6 +264,7 @@ app.include_router(oracle_router)
 app.include_router(admin_router)
 app.include_router(transcripts_router)
 app.include_router(ingestion_router)
+app.include_router(users_router)
 
 
 # Slack endpoints (only if bot configured)

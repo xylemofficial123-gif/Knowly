@@ -30,6 +30,7 @@ def chunk_and_store(
     title: str = "",
     slack_user_id: str = "",
     extra_metadata: dict = None,
+    chunk_type: str = "full_text",
 ):
     db: Session = SessionLocal()
     try:
@@ -77,6 +78,7 @@ def chunk_and_store(
                 "acl": acl,
                 "entities": entities,
                 "title": title,
+                "chunk_type": chunk_type,
                 "ingested_at": now_utc().isoformat(),
             }
             if extra_metadata:
@@ -92,6 +94,7 @@ def chunk_and_store(
                 acl=acl,
                 source_url=url,
                 slack_user_id=slack_user_id,
+                chunk_type=chunk_type,
             )
             db.add(chunk)
             chunk_ids.append(str(chunk_id))

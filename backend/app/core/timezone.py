@@ -1,6 +1,7 @@
 """Timezone utilities — all user-facing timestamps in IST (GMT+5:30)."""
 import re
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -34,7 +35,7 @@ def format_ist_date(dt: datetime) -> str:
     return ist_dt.strftime("%d/%m/%Y")
 
 
-def parse_date_from_text(text: str) -> datetime | None:
+def parse_date_from_text(text: str) -> Optional[datetime]:
     """Try to extract a date from text like titles, filenames, etc.
 
     Handles: YYYY/MM/DD, YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY
@@ -58,7 +59,7 @@ def parse_date_from_text(text: str) -> datetime | None:
     return None
 
 
-def parse_iso(iso_str: str) -> datetime | None:
+def parse_iso(iso_str: str) -> Optional[datetime]:
     """Parse ISO 8601 string to timezone-aware datetime."""
     if not iso_str:
         return None

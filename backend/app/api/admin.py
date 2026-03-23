@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, case
 import logging
+from typing import Optional, List
 
 from app.core.database import SessionLocal
 from app.models import AuditLog, DecisionRecord, AnswerFeedback, GlobalSettings
@@ -470,8 +471,8 @@ def get_metrics():
 # --- Global Settings ---
 
 class SettingsUpdate(BaseModel):
-    enabled_sources: list[str] | None = None
-    google_drive_folder_ids: list[str] | None = None
+    enabled_sources: Optional[List[str]] = None
+    google_drive_folder_ids: Optional[List[str]] = None
 
 
 @router.get("/settings")

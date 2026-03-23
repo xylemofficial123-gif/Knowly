@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from typing import Optional, List
 
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
@@ -20,6 +21,11 @@ EMBEDDING_DIM = 384
 logger.info(f"Loading embedding model: {MODEL_NAME}")
 _embedding_model = TextEmbedding(model_name=MODEL_NAME)
 logger.info("Embedding model loaded")
+
+
+def _get_model() -> TextEmbedding:
+    """Return the shared embedding model (for use in other services)."""
+    return _embedding_model
 
 
 def ensure_collection():
@@ -93,7 +99,7 @@ def update_chunk_feedback(chunk_ids: list[str], rating: str):
             logger.debug(f"Failed to update feedback for chunk {chunk_id}: {e}")
 
 
-def _get_chunk_date(payload: dict) -> datetime | None:
+def _get_chunk_date(payload: dict) -> Optional[datetime]:
     """Extract the best available date from a chunk's payload.
 
     Priority: ingested_at → date parsed from title → None
@@ -108,8 +114,8 @@ def search_chunks(
     query_vector: list[float],
     limit: int = 24,
     freshness_weight: float = 0.0,
-    date_from: str | None = None,
-    date_to: str | None = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
 ) -> list:
     """Search chunks by vector similarity with optional recency boost and date filtering.
 
@@ -160,6 +166,16 @@ def search_chunks(
         feedback_score = p.payload.get("feedback_score", 0.0)
         if feedback_score != 0.0:
             p.score = p.score + feedback_score
+
+        # Context optimization: boost high-value chunk types
+        # summary and decision chunks surface first; calendar context penalised
+        chunk_type = p.payload.get("chunk_type", "full_text")
+        if chunk_type == "summary":
+            p.score += 0.12
+        elif chunk_type == "decision":
+            p.score += 0.10
+        elif chunk_type == "action_item":
+            p.score += 0.05
 
         filtered.append(p)
 

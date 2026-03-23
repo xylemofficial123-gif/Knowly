@@ -22,12 +22,10 @@ openrouter_client = openai.OpenAI(
     api_key=settings.OPENROUTER_API_KEY,
 ) if settings.OPENROUTER_API_KEY else None
 
-# Gemini models to try (in order)
+# Gemini models to try (in order) — verified available on v1beta as of 2026-03
 GEMINI_MODELS = [
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite-preview-09-2025",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
+    "gemini-2.0-flash-lite",
     "gemini-flash-latest",
 ]
 
@@ -47,7 +45,7 @@ FALLBACK_MODELS = [
 ]
 
 # Track rate limits per model to avoid re-hitting them
-_model_rate_limited_until: dict[str, float] = {}
+_model_rate_limited_until = {}  # type: dict
 
 
 def _is_rate_limited(model: str) -> bool:

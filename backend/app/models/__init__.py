@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Float, JSON, ForeignKey
+from sqlalchemy import Column, String, Text, DateTime, Float, JSON, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -31,6 +31,8 @@ class Chunk(Base):
     acl = Column(JSON, default=list)
     source_url = Column(String)
     slack_user_id = Column(String)
+    # context optimization: summary, decision, action_item, full_text
+    chunk_type = Column(String, default="full_text")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
@@ -88,3 +90,40 @@ class GlobalSettings(Base):
     # Target Google Drive folder IDs
     google_drive_folder_ids = Column(JSON, default=list)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+# ── Three-Tier Access Control Models ──────────────────────────────────────────
+
+class User(Base):
+    """Registered user with a role in the three-tier system."""
+    __tablename__ = "users"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, unique=True, nullable=False, index=True)
+    display_name = Column(String, nullable=True)
+    # admin | group_admin | member
+    role = Column(String, default="member", nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class Group(Base):
+    """A team or department group whose members share documents."""
+    __tablename__ = "groups"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    created_by_email = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class GroupMembership(Base):
+    """Maps a user to a group with an optional group-admin role."""
+    __tablename__ = "group_memberships"
+    __table_args__ = (UniqueConstraint("user_email", "group_id", name="uq_group_member"),)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_email = Column(String, nullable=False, index=True)
+    group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    # group_admin | member
+    role = Column(String, default="member", nullable=False)
+    added_at = Column(DateTime, default=datetime.datetime.utcnow)

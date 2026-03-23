@@ -4,6 +4,7 @@ import logging
 import datetime
 import re
 from collections import Counter
+from typing import Optional
 
 import redis
 from sqlalchemy.orm import Session
@@ -53,7 +54,7 @@ def _keyword_overlap(query: str, text: str) -> float:
     return matches / len(query_words)
 
 
-def _get_freshness(doc: Document | None) -> float:
+def _get_freshness(doc: Optional[Document]) -> float:
     if not doc:
         return 0.5
     return doc.freshness_score if doc.freshness_score else 0.5

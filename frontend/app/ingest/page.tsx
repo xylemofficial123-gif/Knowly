@@ -66,8 +66,25 @@ interface DriveFolder {
   name: string;
 }
 
+interface UserRecord {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  groups: { id: string; name: string; role: string }[];
+}
+
+interface GroupRecord {
+  id: string;
+  name: string;
+  description: string;
+  created_by_email: string;
+  member_count: number;
+  members?: { user_email: string; role: string }[];
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion">(
+  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion" | "users" | "groups" | "upload">(
     "ingestion"
   );
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
@@ -77,7 +94,28 @@ export default function AdminPage() {
   const [settings, setSettings] = useState<IngestionSettings | null>(null);
   const [availableFolders, setAvailableFolders] = useState<DriveFolder[]>([]);
   const [newFolderId, setNewFolderId] = useState("");
+  const [folderSearch, setFolderSearch] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Users & Groups state
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [groups, setGroups] = useState<GroupRecord[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<GroupRecord | null>(null);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserRole, setNewUserRole] = useState("member");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupDesc, setNewGroupDesc] = useState("");
+  const [addMemberEmail, setAddMemberEmail] = useState("");
+  const [addMemberRole, setAddMemberRole] = useState("member");
+
+  // Upload state
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadEmail, setUploadEmail] = useState("");
+  const [uploadScope, setUploadScope] = useState("private");
+  const [uploadGroupId, setUploadGroupId] = useState("");
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadSharedWith, setUploadSharedWith] = useState("");
+  const [uploadStatus, setUploadStatus] = useState("");
 
   const fetchAuditLog = async () => {
     setLoading(true);
@@ -156,6 +194,167 @@ export default function AdminPage() {
     }
   };
 
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/users`);
+      const data = await res.json();
+      setUsers(data.users || []);
+    } catch (e) {
+      console.error("Failed to fetch users:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchGroups = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/groups`);
+      const data = await res.json();
+      setGroups(data.groups || []);
+    } catch (e) {
+      console.error("Failed to fetch groups:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchGroupDetail = async (groupId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/groups/${groupId}`);
+      const data = await res.json();
+      setSelectedGroup(data);
+    } catch (e) {
+      console.error("Failed to fetch group detail:", e);
+    }
+  };
+
+  const createUser = async () => {
+    if (!newUserEmail.trim()) return;
+    try {
+      await fetch(`${API_URL}/api/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newUserEmail.trim(), role: newUserRole }),
+      });
+      setNewUserEmail("");
+      fetchUsers();
+    } catch (e) {
+      console.error("Failed to create user:", e);
+    }
+  };
+
+  const updateUserRole = async (email: string, role: string) => {
+    try {
+      await fetch(`${API_URL}/api/users/${encodeURIComponent(email)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      fetchUsers();
+    } catch (e) {
+      console.error("Failed to update user role:", e);
+    }
+  };
+
+  const deleteUser = async (email: string) => {
+    if (!confirm(`Delete user ${email}?`)) return;
+    try {
+      await fetch(`${API_URL}/api/users/${encodeURIComponent(email)}`, { method: "DELETE" });
+      fetchUsers();
+    } catch (e) {
+      console.error("Failed to delete user:", e);
+    }
+  };
+
+  const createGroup = async () => {
+    if (!newGroupName.trim()) return;
+    try {
+      await fetch(`${API_URL}/api/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newGroupName.trim(), description: newGroupDesc }),
+      });
+      setNewGroupName("");
+      setNewGroupDesc("");
+      fetchGroups();
+    } catch (e) {
+      console.error("Failed to create group:", e);
+    }
+  };
+
+  const deleteGroup = async (groupId: string) => {
+    if (!confirm("Delete this group?")) return;
+    try {
+      await fetch(`${API_URL}/api/groups/${groupId}`, { method: "DELETE" });
+      setSelectedGroup(null);
+      fetchGroups();
+    } catch (e) {
+      console.error("Failed to delete group:", e);
+    }
+  };
+
+  const addMember = async (groupId: string) => {
+    if (!addMemberEmail.trim()) return;
+    try {
+      await fetch(`${API_URL}/api/groups/${groupId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_email: addMemberEmail.trim(), role: addMemberRole }),
+      });
+      setAddMemberEmail("");
+      fetchGroupDetail(groupId);
+    } catch (e) {
+      console.error("Failed to add member:", e);
+    }
+  };
+
+  const removeMember = async (groupId: string, email: string) => {
+    try {
+      await fetch(`${API_URL}/api/groups/${groupId}/members/${encodeURIComponent(email)}`, {
+        method: "DELETE",
+      });
+      fetchGroupDetail(groupId);
+    } catch (e) {
+      console.error("Failed to remove member:", e);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile || !uploadEmail.trim()) {
+      setUploadStatus("Please select a file and enter your email.");
+      return;
+    }
+    if (uploadScope === "group" && !uploadGroupId) {
+      setUploadStatus("Please select a group for group-scoped upload.");
+      return;
+    }
+    setUploadStatus("Uploading...");
+    const formData = new FormData();
+    formData.append("file", uploadFile);
+    formData.append("user_email", uploadEmail.trim());
+    formData.append("scope", uploadScope);
+    formData.append("group_id", uploadGroupId);
+    formData.append("title", uploadTitle || uploadFile.name);
+    formData.append("shared_with", uploadSharedWith);
+    try {
+      const res = await fetch(`${API_URL}/api/ingest/upload`, { method: "POST", body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        setUploadStatus(`Uploaded "${data.filename}" with ${data.scope} scope.`);
+        setUploadFile(null);
+        setUploadTitle("");
+      } else {
+        const err = await res.json();
+        setUploadStatus(`Error: ${err.detail}`);
+      }
+    } catch (e) {
+      setUploadStatus("Upload failed. Check the console.");
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     if (tab === "audit") fetchAuditLog();
     else if (tab === "review") fetchReviewQueue();
@@ -164,7 +363,9 @@ export default function AdminPage() {
     else if (tab === "ingestion") {
       fetchSettings();
       fetchAvailableFolders();
-    }
+    } else if (tab === "users") fetchUsers();
+    else if (tab === "groups") fetchGroups();
+    else if (tab === "upload") fetchGroups();
   }, [tab]);
 
   const handleReview = async (id: string, action: "approve" | "reject") => {
@@ -227,10 +428,14 @@ export default function AdminPage() {
     { key: "review", label: "Review Queue" },
     { key: "feedback", label: "Feedback" },
     { key: "ingestion", label: "Ingestion" },
+    { key: "users", label: "Users" },
+    { key: "groups", label: "Groups" },
+    { key: "upload", label: "Upload" },
   ] as const;
 
   return (
-    <main className="max-w-6xl mx-auto px-4 py-8">
+    <main className="flex-1 overflow-y-auto h-full">
+    <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Ingestion Management</h1>
         <a href="/" className="text-sm text-blue-600 hover:underline">
@@ -612,81 +817,90 @@ export default function AdminPage() {
               Google Drive Configuration
             </h2>
             <div className="space-y-6">
-              {/* Folder Lineage */}
+              {/* Active folders */}
               <div>
                 <label className="block text-sm font-medium text-gray-500 mb-3">
-                  Restricted Folder IDs
+                  Active Folders
                 </label>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {(settings.google_drive_folder_ids || []).map((id) => (
-                    <div
-                      key={id}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full border border-blue-100 text-sm group"
-                    >
-                      <span className="font-mono">{id}</span>
-                      <button
-                        onClick={() => removeFolder(id)}
-                        className="text-blue-400 hover:text-red-500 transition-colors"
+                <div className="flex flex-wrap gap-2 mb-1">
+                  {(settings.google_drive_folder_ids || []).map((id) => {
+                    const folder = availableFolders.find((f) => f.id === id);
+                    return (
+                      <div
+                        key={id}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full border border-blue-100 text-sm"
                       >
-                        &times;
-                      </button>
-                    </div>
-                  ))}
+                        <span className="font-medium">{folder?.name || id}</span>
+                        <button
+                          onClick={() => removeFolder(id)}
+                          className="text-blue-400 hover:text-red-500 transition-colors leading-none"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    );
+                  })}
                   {(settings.google_drive_folder_ids || []).length === 0 && (
                     <span className="text-sm text-gray-400 italic">
-                      No folders restricted. Scanning entire Drive (default).
+                      No folders selected. Scanning entire Drive (default).
                     </span>
                   )}
                 </div>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newFolderId}
-                    onChange={(e) => setNewFolderId(e.target.value)}
-                    placeholder="Enter Folder ID (e.g. 1MMQSKn8...)"
-                    className="flex-1 px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
-                  />
-                  <button
-                    onClick={() => addFolder(newFolderId)}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-                  >
-                    Add Folder
-                  </button>
-                </div>
               </div>
 
-              {/* Discovery List */}
+              {/* Search & add by name */}
               <div className="pt-4 border-t">
                 <label className="block text-sm font-medium text-gray-500 mb-3">
-                  Available Folders (Quick Select)
+                  Search Folders by Name
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {availableFolders.map((folder) => (
-                    <button
-                      key={folder.id}
-                      onClick={() => addFolder(folder.id)}
-                      disabled={settings.google_drive_folder_ids?.includes(folder.id)}
-                      className={`text-left p-3 rounded-lg border text-sm transition-all shadow-sm ${
-                        settings.google_drive_folder_ids?.includes(folder.id)
-                          ? "bg-gray-100 text-gray-400 border-gray-200 cursor-default"
-                          : "hover:border-blue-300 hover:bg-blue-50 text-gray-600"
-                      }`}
-                    >
-                      <div className="font-medium truncate">{folder.name}</div>
-                      <div className="text-xs font-mono opacity-60 truncate">
-                        {folder.id}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                <input
+                  type="text"
+                  value={folderSearch}
+                  onChange={(e) => setFolderSearch(e.target.value)}
+                  placeholder="Type a folder name to filter..."
+                  className="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm mb-3"
+                />
+                {folderSearch.trim() === "" ? (
+                  <p className="text-xs text-gray-400">Start typing to see matching folders from your Drive.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
+                    {availableFolders
+                      .filter((f) =>
+                        f.name.toLowerCase().includes(folderSearch.toLowerCase())
+                      )
+                      .map((folder) => {
+                        const already = settings.google_drive_folder_ids?.includes(folder.id);
+                        return (
+                          <button
+                            key={folder.id}
+                            onClick={() => { addFolder(folder.id); setFolderSearch(""); }}
+                            disabled={already}
+                            className={`text-left p-3 rounded-lg border text-sm transition-all shadow-sm ${
+                              already
+                                ? "bg-gray-100 text-gray-400 border-gray-200 cursor-default"
+                                : "hover:border-blue-300 hover:bg-blue-50 text-gray-700"
+                            }`}
+                          >
+                            <div className="font-medium truncate">{folder.name}</div>
+                            <div className="text-xs font-mono text-gray-400 truncate mt-0.5">{folder.id}</div>
+                            {already && <div className="text-xs text-green-600 mt-0.5">Already added</div>}
+                          </button>
+                        );
+                      })}
+                    {availableFolders.filter((f) =>
+                      f.name.toLowerCase().includes(folderSearch.toLowerCase())
+                    ).length === 0 && (
+                      <p className="text-sm text-gray-400 col-span-3">No folders match &ldquo;{folderSearch}&rdquo;</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </section>
 
           {/* Action Footer */}
           <div className="flex justify-start pt-4">
-            <button 
+            <button
                 onClick={() => {
                     fetch(`${API_URL}/api/ingest/trigger`, {
                         method: "POST",
@@ -705,6 +919,327 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* ── Users Tab ─────────────────────────────────────────── */}
+      {tab === "users" && !loading && (
+        <div className="space-y-6">
+          {/* Add User */}
+          <section className="bg-white rounded-xl border p-6">
+            <h2 className="text-lg font-semibold mb-4">Add User</h2>
+            <div className="flex gap-3 flex-wrap">
+              <input
+                type="email"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                placeholder="user@company.com"
+                className="flex-1 min-w-48 px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <select
+                value={newUserRole}
+                onChange={(e) => setNewUserRole(e.target.value)}
+                className="px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="member">Member</option>
+                <option value="group_admin">Group Admin</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button
+                onClick={createUser}
+                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+              >
+                Add User
+              </button>
+            </div>
+          </section>
+
+          {/* User List */}
+          <section className="bg-white rounded-xl border overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Display Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {users.map((u) => (
+                  <tr key={u.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-mono">{u.email}</td>
+                    <td className="px-4 py-3 text-sm">{u.display_name || "—"}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <RoleBadge role={u.role} />
+                    </td>
+                    <td className="px-4 py-3 text-sm flex gap-2">
+                      <select
+                        value={u.role}
+                        onChange={(e) => updateUserRole(u.email, e.target.value)}
+                        className="text-xs px-2 py-1 rounded border"
+                      >
+                        <option value="member">member</option>
+                        <option value="group_admin">group_admin</option>
+                        <option value="admin">admin</option>
+                      </select>
+                      <button
+                        onClick={() => deleteUser(u.email)}
+                        className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {users.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">No users yet. Add the first one above.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        </div>
+      )}
+
+      {/* ── Groups Tab ────────────────────────────────────────── */}
+      {tab === "groups" && !loading && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Group List */}
+          <div className="space-y-4">
+            {/* Create Group */}
+            <section className="bg-white rounded-xl border p-5">
+              <h2 className="text-base font-semibold mb-3">Create Group</h2>
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="Group name (e.g. Engineering)"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <input
+                  type="text"
+                  value={newGroupDesc}
+                  onChange={(e) => setNewGroupDesc(e.target.value)}
+                  placeholder="Description (optional)"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <button
+                  onClick={createGroup}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                >
+                  Create Group
+                </button>
+              </div>
+            </section>
+
+            {/* List */}
+            {groups.map((g) => (
+              <div
+                key={g.id}
+                onClick={() => fetchGroupDetail(g.id)}
+                className={`p-4 bg-white rounded-xl border cursor-pointer hover:border-blue-400 transition-colors ${selectedGroup?.id === g.id ? "border-blue-500 ring-2 ring-blue-200" : ""}`}
+              >
+                <div className="font-medium text-sm">{g.name}</div>
+                <div className="text-xs text-gray-500 mt-0.5">{g.description || "No description"}</div>
+                <div className="text-xs text-gray-400 mt-1">{g.member_count} member{g.member_count !== 1 ? "s" : ""}</div>
+              </div>
+            ))}
+            {groups.length === 0 && (
+              <p className="text-sm text-gray-500 text-center py-4">No groups yet.</p>
+            )}
+          </div>
+
+          {/* Group Detail */}
+          <div className="md:col-span-2">
+            {selectedGroup ? (
+              <div className="bg-white rounded-xl border p-6 space-y-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">{selectedGroup.name}</h2>
+                    <p className="text-sm text-gray-500">{selectedGroup.description}</p>
+                  </div>
+                  <button
+                    onClick={() => deleteGroup(selectedGroup.id)}
+                    className="text-xs px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                  >
+                    Delete Group
+                  </button>
+                </div>
+
+                {/* Add Member */}
+                <div>
+                  <h3 className="text-sm font-medium mb-2">Add Member</h3>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={addMemberEmail}
+                      onChange={(e) => setAddMemberEmail(e.target.value)}
+                      placeholder="user@company.com"
+                      className="flex-1 px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                    <select
+                      value={addMemberRole}
+                      onChange={(e) => setAddMemberRole(e.target.value)}
+                      className="px-3 py-2 rounded-lg border text-sm"
+                    >
+                      <option value="member">Member</option>
+                      <option value="group_admin">Group Admin</option>
+                    </select>
+                    <button
+                      onClick={() => addMember(selectedGroup.id)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                {/* Member List */}
+                <div>
+                  <h3 className="text-sm font-medium mb-2">Members ({selectedGroup.members?.length ?? 0})</h3>
+                  <div className="space-y-2">
+                    {(selectedGroup.members || []).map((m) => (
+                      <div key={m.user_email} className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+                        <div>
+                          <span className="text-sm font-mono">{m.user_email}</span>
+                          <RoleBadge role={m.role} className="ml-2" />
+                        </div>
+                        <button
+                          onClick={() => removeMember(selectedGroup.id, m.user_email)}
+                          className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    {(!selectedGroup.members || selectedGroup.members.length === 0) && (
+                      <p className="text-sm text-gray-400">No members yet.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border p-8 text-center text-gray-400">
+                Select a group to manage its members.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Upload Tab ────────────────────────────────────────── */}
+      {tab === "upload" && (
+        <div className="max-w-2xl space-y-6">
+          <section className="bg-white rounded-xl border p-6 space-y-5">
+            <h2 className="text-lg font-semibold">Upload Document</h2>
+            <p className="text-sm text-gray-500">
+              Upload a document to the knowledge base. Choose the visibility scope — public documents are available company-wide.
+            </p>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Your Email</label>
+              <input
+                type="email"
+                value={uploadEmail}
+                onChange={(e) => setUploadEmail(e.target.value)}
+                placeholder="you@company.com"
+                className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Visibility Scope</label>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { value: "private", label: "Private", desc: "Only you" },
+                  { value: "group", label: "Group", desc: "Your team" },
+                  { value: "public", label: "Public", desc: "Everyone (admin only)" },
+                ].map((s) => (
+                  <button
+                    key={s.value}
+                    onClick={() => setUploadScope(s.value)}
+                    className={`p-3 rounded-lg border text-left transition-colors ${
+                      uploadScope === s.value
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className="text-sm font-medium">{s.label}</div>
+                    <div className="text-xs text-gray-500">{s.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {uploadScope === "group" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Select Group</label>
+                <select
+                  value={uploadGroupId}
+                  onChange={(e) => setUploadGroupId(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="">— Select a group —</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {uploadScope === "private" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Share with (optional, comma-separated emails)
+                </label>
+                <input
+                  type="text"
+                  value={uploadSharedWith}
+                  onChange={(e) => setUploadSharedWith(e.target.value)}
+                  placeholder="colleague@company.com, another@company.com"
+                  className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Document Title (optional)</label>
+              <input
+                type="text"
+                value={uploadTitle}
+                onChange={(e) => setUploadTitle(e.target.value)}
+                placeholder="Leave blank to use filename"
+                className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">File</label>
+              <input
+                type="file"
+                accept=".txt,.md,.pdf,.doc,.docx"
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
+
+            <button
+              onClick={handleUpload}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+            >
+              Upload Document
+            </button>
+
+            {uploadStatus && (
+              <p className={`text-sm text-center ${uploadStatus.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>
+                {uploadStatus}
+              </p>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
     </main>
   );
 }
@@ -721,5 +1256,20 @@ function StatCard({
       <div className="text-2xl font-bold">{value}</div>
       <div className="text-xs text-gray-500 mt-1">{label}</div>
     </div>
+  );
+}
+
+function RoleBadge({ role, className = "" }: { role: string; className?: string }) {
+  const colors: Record<string, string> = {
+    admin: "bg-red-100 text-red-700",
+    group_admin: "bg-orange-100 text-orange-700",
+    member: "bg-gray-100 text-gray-600",
+  };
+  return (
+    <span
+      className={`px-2 py-0.5 text-xs font-medium rounded-full ${colors[role] ?? "bg-gray-100 text-gray-600"} ${className}`}
+    >
+      {role}
+    </span>
   );
 }

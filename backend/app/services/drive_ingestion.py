@@ -90,7 +90,7 @@ def _get_credentials():
             }
 
             flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-            creds = flow.run_local_server(port=8080, prompt="consent")
+            creds = flow.run_local_server(port=8080, open_browser=True, prompt="consent")
 
         # Save token for next time
         with open(TOKEN_PATH, "w") as f:

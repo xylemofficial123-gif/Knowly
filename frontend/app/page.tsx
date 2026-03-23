@@ -52,7 +52,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: q,
-          user_email: "chaitra.narem@seedlinglabs.com",
+          user_email: "sachin.kurup@seedlinglabs.com",
           session_id: sessionId,
           history: messages.map(m => ({ role: m.role, content: m.content }))
         }),

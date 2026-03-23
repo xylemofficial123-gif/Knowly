@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-03-12
+> **Last updated**: 2026-03-23
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -84,6 +84,11 @@ FastAPI Backend
 
 | Feature | Status | Details |
 |---------|--------|---------|
+| Three-tier RBAC | DONE | Admin / Group Admin / Member roles; ACL supports public, group:<id>, user:<email>, legacy email |
+| Scoped document upload | DONE | POST /api/ingest/upload with public/group/private scope; PDF + text support |
+| User & Group management | DONE | Full CRUD; group memberships with group_admin role; frontend Users + Groups tabs |
+| Meet discrepancy detection | DONE | Compares new meeting decisions vs active DecisionRecords (embed + LLM classify); flags contradictions, updates, reconfirmations |
+| Context optimization | DONE | chunk_type field (summary/decision/action_item/full_text); summary chunks boosted +0.12, decision +0.10; meeting summaries stored as separate priority chunks |
 | RAG with citations | DONE | Semantic search → ACL filter → re-rank → LLM synthesis, `[N]` citation format |
 | Multi-turn conversation | DONE | Session IDs, conversation history in Router + Research prompts, chatbot UI |
 | Temporal intelligence | DONE | LLM extracts date ranges from natural language ("last week", "yesterday"), freshness boost for recency queries |
@@ -175,7 +180,46 @@ User action (Slack message / ClickUp task / Drive doc edit)
 
 **Already built**: `app/services/slack_ingestion.py`, `app/main.py` has Slack event handlers
 
-### Priority 3 — User Permissions / Consent Dashboard
+### ~~Priority 3 — User Permissions / Consent Dashboard~~ DONE (Three-Tier RBAC)
+
+**Implemented as three-tier role system** — see Three-Tier Access Control section above.
+
+---
+
+### Three-Tier Access Control
+
+**Status: DONE**
+
+| Model | Status | Details |
+|-------|--------|---------|
+| `User` | DONE | email, display_name, role (admin/group_admin/member) |
+| `Group` | DONE | name, description, created_by_email |
+| `GroupMembership` | DONE | user_email → group_id with role |
+| ACL engine | DONE | Admin bypass, group membership, private user docs, legacy email |
+| User management API | DONE | GET/POST/PUT/DELETE /api/users |
+| Group management API | DONE | GET/POST/PUT/DELETE /api/groups + /members |
+| Scoped upload API | DONE | POST /api/ingest/upload (public/group/private) |
+| Frontend Users tab | DONE | Add users, set roles, remove users |
+| Frontend Groups tab | DONE | Create groups, manage members, set group admins |
+| Frontend Upload tab | DONE | Scoped upload with scope selector |
+
+**ACL format:**
+- `"public"` → visible to all
+- `"group:<uuid>"` → visible to group members
+- `"user:<email>"` → private to that user
+- `"email@domain.com"` → legacy (Drive permissions, meeting attendees)
+- Admin role → bypasses all ACL checks
+
+**Tier capabilities:**
+| Tier | Role | Can do |
+|------|------|--------|
+| Admin | `admin` | Upload public/group/private, see all, manage users & groups |
+| Team Leader | `group_admin` | Upload for their group, see public + group + own private |
+| Individual | `member` | Upload private docs (can share selectively), see public + group + own |
+
+---
+
+### Original Priority 3 — User Permissions / Consent Dashboard
 
 **Goal**: When users install the product, they can choose which integrations the system can access (Google Drive, Calendar, Slack, ClickUp, etc.). Per-user toggles for read/write access.
 
@@ -428,6 +472,11 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-03-23 | Three-tier RBAC: User/Group/GroupMembership models, ACL overhaul (admin bypass, group:<uuid>, user:<email>), User+Group management APIs + frontend tabs |
+| 2026-03-23 | Scoped document upload: POST /api/ingest/upload with public/group/private scope + PDF extraction |
+| 2026-03-23 | Meet discrepancy detection: new meeting decisions compared against all active DecisionRecords via cosine similarity + LLM classification (CONTRADICTION/UPDATE/RECONFIRMATION) |
+| 2026-03-23 | Context optimization: chunk_type field on Chunk model + Qdrant payload; summary/decision chunks boosted in search ranking; meeting summaries stored as separate high-priority chunks |
+| 2026-03-23 | Frontend: Users tab (add/role/remove), Groups tab (create/member management), Upload tab (scoped upload with scope selector) |
 | 2026-03-13 | Drive ACL: real per-file permissions from Drive Permissions API (replaces hardcoded "public") |
 | 2026-03-12 | Decision reversal tracking: auto-detection, manual reversal API, chain history, agents surface reversals in answers |
 | 2026-03-12 | Feedback-driven learning: chunk scores adjust based on user helpful/not helpful ratings |
