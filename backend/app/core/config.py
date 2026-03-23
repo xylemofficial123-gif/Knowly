@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     SLACK_BOT_TOKEN: str = ""
     SLACK_SIGNING_SECRET: str = ""
+    SLACK_CLIENT_SECRET: str = ""
 
     CLICKUP_API_KEY: str = ""
     CLICKUP_TEAM_ID: str = ""

@@ -156,6 +156,35 @@ def sync_calendar(self):
 
 
 @celery_app.task(bind=True, max_retries=3)
+def sync_slack(self):
+    db = SessionLocal()
+    try:
+        from app.models import GlobalSettings
+        from app.core.config import settings as app_settings
+
+        gs = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+        if gs and "slack" not in (gs.enabled_sources or []):
+            logger.info("Slack sync skipped (disabled in settings)")
+            return 0
+
+        if not app_settings.SLACK_BOT_TOKEN:
+            logger.info("Slack sync skipped (no bot token configured)")
+            return 0
+
+        logger.info("Starting nightly Slack backfill")
+        from app.services.slack_ingestion import backfill_all_channels
+
+        count = backfill_all_channels()
+        logger.info(f"Slack sync complete: {count} messages ingested")
+        return count
+    except Exception as e:
+        logger.error(f"Slack sync failed: {e}")
+        raise self.retry(exc=e, countdown=300)
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, max_retries=3)
 def reingest_clickup_task(self, task_id: str, space_id: str = "", list_id: str = ""):
     try:
         import requests
