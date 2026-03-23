@@ -6,7 +6,7 @@ import logging
 from typing import Optional, List
 
 from app.core.database import SessionLocal
-from app.models import AuditLog, DecisionRecord, AnswerFeedback, GlobalSettings
+from app.models import AuditLog, DecisionRecord, AnswerFeedback, GlobalSettings, Document, Chunk
 from app.models.review_queue import ReviewQueueItem
 
 logger = logging.getLogger(__name__)
@@ -520,3 +520,86 @@ def update_settings(req: SettingsUpdate):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.get("/graph")
+def get_graph_data():
+    """Return knowledge graph data: source breakdown, project clusters, people, recent docs."""
+    import re
+    db = SessionLocal()
+    try:
+        # Source node counts
+        source_counts = db.query(Document.source, func.count(Document.id)).group_by(Document.source).all()
+        sources = [{"id": s, "count": c} for s, c in source_counts]
+
+        # Derive project clusters from non-calendar doc titles only
+        clusterable_docs = db.query(Document.title, Document.source, Document.url, Document.created_at).filter(
+            Document.source.notin_(["calendar"])
+        ).all()
+        project_map: dict = {}
+        for title, source, url, created_at in clusterable_docs:
+            if not title:
+                continue
+            # Extract project name: first word before underscore, dash, or space — must be meaningful (len >= 3)
+            match = re.match(r"^([A-Za-z]{3,})", re.sub(r"[\-_ ].*", "", title))
+            raw = match.group(1) if match else "Other"
+            # Capitalise consistently
+            project = raw.capitalize()
+            if project not in project_map:
+                project_map[project] = {"name": project, "count": 0, "sources": set(), "docs": []}
+            project_map[project]["count"] += 1
+            project_map[project]["sources"].add(source)
+            if len(project_map[project]["docs"]) < 5:
+                project_map[project]["docs"].append({
+                    "title": title,
+                    "source": source,
+                    "url": url or "",
+                })
+        clusters = [
+            {**v, "sources": list(v["sources"])}
+            for v in sorted(project_map.values(), key=lambda x: -x["count"])
+        ]
+
+        # People: collect unique emails from Document ACL lists
+        people_count: dict = {}
+        for (acl,) in db.query(Document.acl).all():
+            if not acl:
+                continue
+            for entry in acl:
+                if "@" in str(entry) and entry not in ("public",):
+                    people_count[entry] = people_count.get(entry, 0) + 1
+        people = [{"email": e, "doc_count": c} for e, c in sorted(people_count.items(), key=lambda x: -x[1])[:20]]
+
+        # Recent 10 docs
+        recent = db.query(Document).order_by(Document.created_at.desc()).limit(10).all()
+        recent_docs = [{"title": d.title, "source": d.source, "url": d.url or "", "created_at": d.created_at.isoformat() if d.created_at else ""} for d in recent]
+
+        # Totals
+        total_docs = db.query(Document).count()
+        total_chunks = db.query(Chunk).count()
+        total_decisions = db.query(DecisionRecord).count()
+
+        return {
+            "totals": {"docs": total_docs, "chunks": total_chunks, "decisions": total_decisions},
+            "sources": sources,
+            "clusters": clusters,
+            "people": people,
+            "recent_docs": recent_docs,
+        }
+    finally:
+        db.close()
+
+
+@router.post("/decisions/extract")
+def trigger_decision_extraction():
+    """Run decision extraction over all ingested chunks."""
+    try:
+        from app.services.decision_extractor import run_extraction_on_all_chunks
+        run_extraction_on_all_chunks()
+        db = SessionLocal()
+        count = db.query(DecisionRecord).count()
+        db.close()
+        return {"status": "ok", "decisions_total": count}
+    except Exception as e:
+        logger.error(f"Decision extraction failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
