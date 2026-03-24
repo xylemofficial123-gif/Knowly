@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
+import { ClerkProvider } from "@clerk/nextjs";
+import LayoutWrapper from "@/components/LayoutWrapper";
 
 export const metadata: Metadata = {
   title: "Xylem | Knowledge Agent",
@@ -13,13 +14,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="antialiased">
-        <div className="flex h-screen overflow-hidden">
-          <Sidebar />
-          {children}
-        </div>
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body className="antialiased">
+          <LayoutWrapper>{children}</LayoutWrapper>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

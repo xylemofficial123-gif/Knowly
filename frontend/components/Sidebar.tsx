@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useUser, useClerk } from "@clerk/nextjs";
 
 interface SidebarItem {
   id: string;
@@ -21,6 +22,8 @@ const navItems: SidebarItem[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { user } = useUser();
+  const { signOut } = useClerk();
   const [recentQueries, setRecentQueries] = useState<{ text: string, time: string }[]>([]);
 
   useEffect(() => {
@@ -115,14 +118,33 @@ export default function Sidebar() {
 
       {/* User Profile */}
       <div className="px-5 pt-6 border-t border-gray-50 mt-auto">
-        <div className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-2xl cursor-pointer transition-all">
-          <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-white text-[10px] font-black shadow-lg shadow-accent/10">
-            CN
+        <div
+          className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-2xl cursor-pointer transition-all group"
+          onClick={() => signOut({ redirectUrl: "/sign-in" })}
+          title="Sign out"
+        >
+          {user?.imageUrl ? (
+            <img
+              src={user.imageUrl}
+              alt="avatar"
+              className="w-10 h-10 rounded-full object-cover shadow-lg"
+            />
+          ) : (
+            <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-white text-[11px] font-black shadow-lg shadow-accent/10 shrink-0">
+              {user?.firstName?.[0]?.toUpperCase() ?? user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? "?"}
+            </div>
+          )}
+          <div className="overflow-hidden flex-1 min-w-0">
+            <p className="text-[14px] font-bold text-foreground leading-none mb-1 truncate">
+              {user?.firstName && user?.lastName
+                ? `${user.firstName} ${user.lastName}`
+                : user?.firstName ?? user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] ?? "User"}
+            </p>
+            <p className="text-[10px] font-bold text-gray-400 truncate uppercase tracking-tighter">
+              {user?.emailAddresses?.[0]?.emailAddress ?? ""}
+            </p>
           </div>
-          <div className="overflow-hidden">
-            <p className="text-[14px] font-bold text-foreground leading-none mb-1">Chaitra Narem</p>
-            <p className="text-[10px] font-bold text-gray-400 truncate uppercase tracking-tighter">Product · Admin</p>
-          </div>
+          <span className="text-[10px] text-gray-300 group-hover:text-gray-400 shrink-0 transition-colors">↩</span>
         </div>
       </div>
     </aside>

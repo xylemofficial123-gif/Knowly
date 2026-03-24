@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useUser } from "@clerk/nextjs";
 import OracleResponse from "@/components/OracleResponse";
 import CitationCard from "@/components/CitationCard";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function Home() {
+  const { user } = useUser();
+  const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "sachin.kurup@seedlinglabs.com";
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +55,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: q,
-          user_email: "sachin.kurup@seedlinglabs.com",
+          user_email: userEmail,
           session_id: sessionId,
           history: messages.map(m => ({ role: m.role, content: m.content }))
         }),
