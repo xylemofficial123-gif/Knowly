@@ -251,9 +251,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Knowledge Agent API", version="1.0.0", lifespan=lifespan)
 
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "https://xylem-memory.vercel.app",
+    *([o.strip() for o in settings.EXTRA_CORS_ORIGINS.split(",") if o.strip()] if hasattr(settings, "EXTRA_CORS_ORIGINS") and settings.EXTRA_CORS_ORIGINS else []),
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

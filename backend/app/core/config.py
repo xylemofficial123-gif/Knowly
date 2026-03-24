@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     CLERK_SECRET_KEY: str = ""
     BYPASS_ACL: bool = False
+    EXTRA_CORS_ORIGINS: str = ""
 
     NO_INDEX_CHANNEL_IDS: str = ""
     RELITIGATION_THRESHOLD: float = 0.82
