@@ -52,7 +52,7 @@ export default function ActivityPage() {
     ? entries.filter((e) => e.user_email.toLowerCase().includes(filterUser.toLowerCase()))
     : entries;
 
-  const uniqueUsers = [...new Set(entries.map((e) => e.user_email))];
+  const uniqueUsers = Array.from(new Set(entries.map((e) => e.user_email)));
   const todayCount = entries.filter((e) => {
     if (!e.timestamp) return false;
     const d = new Date(e.timestamp);
