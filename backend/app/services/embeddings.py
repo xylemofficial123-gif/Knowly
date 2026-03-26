@@ -10,7 +10,10 @@ from app.core.timezone import parse_date_from_text, parse_iso
 
 logger = logging.getLogger(__name__)
 
-qdrant = QdrantClient(url=settings.QDRANT_URL)
+qdrant = QdrantClient(
+    url=settings.QDRANT_URL,
+    api_key=settings.QDRANT_API_KEY or None,
+)
 COLLECTION = "knowledge_chunks"
 
 # Local embedding model — no API key needed, runs on CPU
