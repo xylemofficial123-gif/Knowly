@@ -13,8 +13,8 @@ def is_source_enabled(source_name: str) -> bool:
     try:
         gs = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
         if not gs:
-            # Default to True for Drive if settings haven't been initialized yet
-            return source_name == "drive"
+            # Default all sources enabled if settings haven't been initialized yet
+            return True
         
         enabled = source_name in (gs.enabled_sources or [])
         if not enabled:
@@ -35,8 +35,8 @@ def get_enabled_sources() -> list[str]:
     try:
         gs = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
         if not gs:
-            return ["drive", "upload"]
-        enabled = gs.enabled_sources or []
+            return ["drive", "meet", "calendar", "slack", "clickup", "upload"]
+        enabled = list(gs.enabled_sources or [])
         if "upload" not in enabled:
             enabled.append("upload")
         return enabled
