@@ -13,3 +13,10 @@ dist/
 build/
 .DS_Store
 *.db
+
+**/.env*
+**/venv/
+**/.pyre_configuration
+
+.vscode/
+pyrightconfig.json

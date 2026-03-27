@@ -7,6 +7,7 @@ from app.services.llm import generate
 from app.services.embeddings import embed_text, search_chunks
 from app.core.acl import user_can_see_chunk
 from app.core.timezone import now_ist, format_ist
+from app.services.settings_service import get_enabled_sources
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +87,21 @@ class ResearchAgent(BaseAgent):
                 date_to=date_to,
             )
 
-            # Count relevant results blocked by ACL
+            # Source enablement filter
+            enabled_sources = get_enabled_sources()
+            
+            # ACL filter + minimum relevance threshold
             relevant_results = [r for r in results if r.score >= 0.40]
-            acl_passed = [r for r in relevant_results if
+            
+            # Only consider results from enabled sources for further processing/counting
+            enabled_results = [r for r in relevant_results if r.payload.get("source", "unknown") in enabled_sources]
+            
+            acl_passed = [r for r in enabled_results if
                 user_can_see_chunk(context.user_email, r.payload.get("acl", []))
             ]
-            acl_blocked_count += len(relevant_results) - len(acl_passed)
-
-            # ACL filter + minimum relevance threshold
+            
+            # Tracks chunks in ENABLED sources that user can't access
+            acl_blocked_count += len(enabled_results) - len(acl_passed)
             filtered = acl_passed
 
             # Topic filter
@@ -177,8 +185,15 @@ class ResearchAgent(BaseAgent):
                     agent_name=self.name,
                     confidence=0.0,
                 )
+            enabled = get_enabled_sources()
+            active_tech_sources = [s for s in enabled if s != "upload"]
+            if not active_tech_sources:
+                msg = "All knowledge ingestion sources are currently disabled. Please enable them in the 'Ingest Sources' settings to allow research across your company's platforms."
+            else:
+                msg = "I could not find any documented records in the currently enabled sources that address your query. You may need to refine your question or ensure the relevant documents have been ingested."
+            
             return AgentResult(
-                answer="I couldn't find relevant information across any of my searches.",
+                answer=msg,
                 agent_name=self.name,
                 confidence=0.0,
             )

@@ -16,66 +16,77 @@ class TriggerRequest(BaseModel):
 
 @router.post("/trigger")
 def trigger_ingestion(req: TriggerRequest):
+    from app.services.settings_service import is_source_enabled
     results = {}
 
     try:
         if req.source in ("slack", "all"):
-            from app.services.slack_ingestion import backfill_all_channels
-
-            try:
-                count = backfill_all_channels()
-                results["slack"] = {"status": "ok", "messages_ingested": count}
-            except Exception as e:
-                results["slack"] = {"status": "error", "detail": str(e)}
+            if not is_source_enabled("slack"):
+                results["slack"] = {"status": "skipped", "detail": "Source disabled in settings"}
+            else:
+                from app.services.slack_ingestion import backfill_all_channels
+                try:
+                    count = backfill_all_channels()
+                    results["slack"] = {"status": "ok", "messages_ingested": count}
+                except Exception as e:
+                    results["slack"] = {"status": "error", "detail": str(e)}
 
         if req.source in ("clickup", "all"):
-            from app.services.clickup_ingestion import ingest_all_clickup
-
-            try:
-                count = ingest_all_clickup(req.team_id or None)
-                results["clickup"] = {"status": "ok", "tasks_ingested": count}
-            except Exception as e:
-                results["clickup"] = {"status": "error", "detail": str(e)}
+            if not is_source_enabled("clickup"):
+                results["clickup"] = {"status": "skipped", "detail": "Source disabled in settings"}
+            else:
+                from app.services.clickup_ingestion import ingest_all_clickup
+                try:
+                    count = ingest_all_clickup(req.team_id or None)
+                    results["clickup"] = {"status": "ok", "tasks_ingested": count}
+                except Exception as e:
+                    results["clickup"] = {"status": "error", "detail": str(e)}
 
         if req.source in ("meet", "all"):
-            from app.services.meet_ingestion import ingest_drive_transcripts
-
-            try:
-                count = ingest_drive_transcripts()
-                results["meet"] = {"status": "ok", "transcripts_ingested": count}
-            except Exception as e:
-                results["meet"] = {"status": "error", "detail": str(e)}
+            if not is_source_enabled("meet"):
+                results["meet"] = {"status": "skipped", "detail": "Source disabled in settings"}
+            else:
+                from app.services.meet_ingestion import ingest_drive_transcripts
+                try:
+                    count = ingest_drive_transcripts()
+                    results["meet"] = {"status": "ok", "transcripts_ingested": count}
+                except Exception as e:
+                    results["meet"] = {"status": "error", "detail": str(e)}
 
         if req.source in ("drive", "all"):
-            from app.services.drive_ingestion import ingest_all_drive
-            from app.models import GlobalSettings
-            from app.core.database import SessionLocal
+            if not is_source_enabled("drive"):
+                results["drive"] = {"status": "skipped", "detail": "Source disabled in settings"}
+            else:
+                from app.services.drive_ingestion import ingest_all_drive
+                from app.models import GlobalSettings
+                from app.core.database import SessionLocal
+                try:
+                    folder_ids = req.folder_ids
+                    # If no folder_ids in the request, read from saved GlobalSettings
+                    if not folder_ids:
+                        db = SessionLocal()
+                        try:
+                            gs = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
+                            if gs and gs.google_drive_folder_ids:
+                                folder_ids = gs.google_drive_folder_ids
+                        finally:
+                            db.close()
 
-            try:
-                folder_ids = req.folder_ids
-                # If no folder_ids in the request, read from saved GlobalSettings
-                if not folder_ids:
-                    db = SessionLocal()
-                    try:
-                        gs = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
-                        if gs and gs.google_drive_folder_ids:
-                            folder_ids = gs.google_drive_folder_ids
-                    finally:
-                        db.close()
-
-                count = ingest_all_drive(folder_ids=folder_ids if folder_ids else None)
-                results["drive"] = {"status": "ok", "files_ingested": count}
-            except Exception as e:
-                results["drive"] = {"status": "error", "detail": str(e)}
+                    count = ingest_all_drive(folder_ids=folder_ids if folder_ids else None)
+                    results["drive"] = {"status": "ok", "files_ingested": count}
+                except Exception as e:
+                    results["drive"] = {"status": "error", "detail": str(e)}
 
         if req.source in ("calendar", "all"):
-            from app.services.calendar_sync import sync_calendar
-
-            try:
-                count = sync_calendar()
-                results["calendar"] = {"status": "ok", "events_synced": count}
-            except Exception as e:
-                results["calendar"] = {"status": "error", "detail": str(e)}
+            if not is_source_enabled("calendar"):
+                results["calendar"] = {"status": "skipped", "detail": "Source disabled in settings"}
+            else:
+                from app.services.calendar_sync import sync_calendar
+                try:
+                    count = sync_calendar()
+                    results["calendar"] = {"status": "ok", "events_synced": count}
+                except Exception as e:
+                    results["calendar"] = {"status": "error", "detail": str(e)}
 
         if req.source not in ("slack", "clickup", "meet", "drive", "calendar", "all"):
             raise HTTPException(status_code=400, detail=f"Unknown source: {req.source}")

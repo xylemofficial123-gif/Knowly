@@ -33,6 +33,10 @@ if settings.SLACK_BOT_TOKEN:
 
     @slack_app.event("message")
     def handle_message(event, say):
+        from app.services.settings_service import is_source_enabled
+        if not is_source_enabled("slack"):
+            return
+
         from app.workers.tasks import (
             ingest_slack_message,
             process_relitigation_check,
@@ -298,6 +302,10 @@ async def slack_interactions(request: Request):
 # ClickUp webhook
 @app.post("/api/clickup/webhook")
 async def clickup_webhook(request: Request):
+    from app.services.settings_service import is_source_enabled
+    if not is_source_enabled("clickup"):
+        return {"status": "ignored", "reason": "source disabled"}
+
     from app.workers.tasks import reingest_clickup_task
 
     try:

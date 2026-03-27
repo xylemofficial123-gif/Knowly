@@ -9,6 +9,7 @@ from app.core.acl import user_can_see_chunk
 from app.core.database import SessionLocal
 from app.core.timezone import format_ist_date
 from app.models import DecisionRecord
+from app.services.settings_service import get_enabled_sources
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +74,20 @@ class OnboardingAgent(BaseAgent):
             vec = embed_text(sq)
             results = search_chunks(vec, limit=6)
 
-            # Count relevant results blocked by ACL
+            # Source enablement filter
+            enabled_sources = get_enabled_sources()
+            
+            # ACL filter + minimum relevance threshold
             relevant_results = [r for r in results if r.score >= 0.45]
-            acl_passed = [r for r in relevant_results if
+            
+            # Only consider results from enabled sources
+            enabled_results = [r for r in relevant_results if r.payload.get("source", "unknown") in enabled_sources]
+            
+            acl_passed = [r for r in enabled_results if
                 user_can_see_chunk(context.user_email, r.payload.get("acl", []))
             ]
-            acl_blocked_count += len(relevant_results) - len(acl_passed)
-
-            # ACL filter + minimum relevance threshold
+            
+            acl_blocked_count += len(enabled_results) - len(acl_passed)
             filtered = acl_passed
 
             for r in filtered[:3]:
@@ -121,9 +128,15 @@ class OnboardingAgent(BaseAgent):
                     agent_name=self.name,
                     confidence=0.0,
                 )
+            enabled = get_enabled_sources()
+            active_tech_sources = [s for s in enabled if s != "upload"]
+            if not active_tech_sources:
+                msg = "All knowledge ingestion sources are currently disabled. Please enable them in the 'Ingest Sources' settings to allow research across your company's platforms."
+            else:
+                msg = "I don't have enough information to create a briefing on this topic yet. Please ensure the relevant documents have been ingested and the source is enabled in settings."
+            
             return AgentResult(
-                answer="I don't have enough information to create a briefing on this topic yet. "
-                       "More documents or meeting notes about this topic need to be ingested.",
+                answer=msg,
                 agent_name=self.name,
                 confidence=0.0,
             )

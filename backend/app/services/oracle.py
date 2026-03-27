@@ -15,6 +15,7 @@ from app.core.acl import user_can_see_chunk
 from app.models import AuditLog, Document
 from app.services.embeddings import embed_text, search_chunks
 from app.services.llm import generate
+from app.services.settings_service import get_enabled_sources
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ Answer:"""
 
 
 def _cache_key(question: str, user_email: str) -> str:
-    raw = f"{question.strip().lower()}:{user_email}"
+    enabled_sources = sorted(get_enabled_sources())
+    sources_hash = hashlib.md5(",".join(enabled_sources).encode()).hexdigest()[:8]
+    raw = f"{question.strip().lower()}:{user_email}:{sources_hash}"
     return f"oracle:{hashlib.md5(raw.encode()).hexdigest()}"
 
 
@@ -64,11 +67,21 @@ def retrieve_chunks(question: str, user_email: str, top_k: int = 8):
     query_vector = embed_text(question)
     raw_results = search_chunks(query_vector, limit=top_k * 3)
 
+    enabled_sources = get_enabled_sources()
+
     filtered = []
     for r in raw_results:
+        # Check ACL
         acl = r.payload.get("acl", [])
-        if user_can_see_chunk(user_email, acl):
-            filtered.append(r)
+        if not user_can_see_chunk(user_email, acl):
+            continue
+        
+        # Check if source is enabled
+        source = r.payload.get("source", "unknown")
+        if source not in enabled_sources:
+            continue
+            
+        filtered.append(r)
 
     scored = []
     for r in filtered:
@@ -83,8 +96,18 @@ def retrieve_chunks(question: str, user_email: str, top_k: int = 8):
 
 def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
     if not chunks_with_scores:
+        from app.services.settings_service import get_enabled_sources
+        enabled = get_enabled_sources()
+        # Filter out 'upload' which is always present
+        active_tech_sources = [s for s in enabled if s != "upload"]
+        
+        if not active_tech_sources:
+            msg = "All knowledge ingestion sources are currently disabled. Please enable them in the 'Ingest Sources' settings to allow research across your company's platforms."
+        else:
+            msg = "I could not find any documented records in the currently enabled sources that address your query. You may need to refine your question or ensure the relevant documents have been ingested."
+            
         return {
-            "answer": "I cannot find a record of this in the company's documented history.",
+            "answer": msg,
             "citations": [],
             "chunks_used": [],
         }
