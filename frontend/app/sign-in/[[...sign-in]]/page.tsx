@@ -2,197 +2,265 @@
 
 import { SignIn } from "@clerk/nextjs";
 
-const features = [
-  {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth="1.5">
-        <path d="M12 3v18M3 12h18" strokeLinecap="round" />
-        <path d="M12 3C8 6 5 9 5 13c0 3.5 3 6 7 7" strokeLinecap="round" />
-        <path d="M12 3c4 3 7 6 7 10c0 3.5-3 6-7 7" strokeLinecap="round" />
-      </svg>
-    ),
-    title: "Cross-source synthesis",
-    desc: "Connects Slack, Drive, Meet, and Calendar into one unified memory.",
-  },
-  {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth="1.5">
-        <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
-      </svg>
-    ),
-    title: "Decision intelligence",
-    desc: "Auto-extracts and tracks every key decision with full rationale and history.",
-  },
-  {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth="1.5">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-    title: "Role-aware access",
-    desc: "Every document respects permissions — public, team, or private.",
-  },
+// ─────────────────────────────────────────────────────────────────────────────
+// XylemSynapse
+// Shows every connected source feeding into the central Xylem node,
+// like xylem tissue or a neural synapse drawing everything inward.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CX = 300;
+const CY = 480;
+
+const SOURCES = [
+  { name: "Slack",    x: 82,  y: 175, color: "#34d399", cp1x: 82,  cp1y: 330, cp2x: 195, cp2y: 450, dur: "3.2s", begin: "0s"    },
+  { name: "Drive",    x: 518, y: 155, color: "#22d3ee", cp1x: 518, cp1y: 310, cp2x: 405, cp2y: 450, dur: "2.8s", begin: "0.6s"  },
+  { name: "Meet",     x: 562, y: 430, color: "#4ade80", cp1x: 455, cp1y: 430, cp2x: 388, cp2y: 470, dur: "3.5s", begin: "1.1s"  },
+  { name: "Calendar", x: 472, y: 755, color: "#06b6d4", cp1x: 472, cp1y: 605, cp2x: 388, cp2y: 525, dur: "2.6s", begin: "0.3s"  },
+  { name: "ClickUp",  x: 128, y: 755, color: "#6ee7b7", cp1x: 128, cp1y: 605, cp2x: 212, cp2y: 525, dur: "3.0s", begin: "1.5s"  },
+  { name: "Uploads",  x: 38,  y: 435, color: "#38bdf8", cp1x: 148, cp1y: 435, cp2x: 215, cp2y: 468, dur: "2.4s", begin: "0.8s"  },
 ];
 
-// Subtle vascular/botanical SVG background
-function BotanicalPattern() {
+function XylemSynapse() {
   return (
     <svg
-      className="absolute inset-0 w-full h-full opacity-[0.06]"
-      viewBox="0 0 600 800"
+      viewBox="0 0 600 930"
       fill="none"
       preserveAspectRatio="xMidYMid slice"
+      className="absolute inset-0 w-full h-full"
+      aria-hidden
     >
-      {/* Main stem */}
-      <path d="M300 800 C300 600 300 400 300 100" stroke="white" strokeWidth="1.5" />
-      {/* Left branches */}
-      <path d="M300 650 C260 620 200 610 140 620" stroke="white" strokeWidth="1.2" />
-      <path d="M300 530 C250 490 180 475 100 480" stroke="white" strokeWidth="1" />
-      <path d="M300 420 C265 385 220 370 160 365" stroke="white" strokeWidth="1" />
-      <path d="M300 310 C255 270 195 255 130 248" stroke="white" strokeWidth="0.8" />
-      <path d="M300 210 C268 175 230 158 185 152" stroke="white" strokeWidth="0.8" />
-      {/* Right branches */}
-      <path d="M300 650 C340 620 400 610 460 620" stroke="white" strokeWidth="1.2" />
-      <path d="M300 530 C350 490 420 475 500 480" stroke="white" strokeWidth="1" />
-      <path d="M300 420 C335 385 380 370 440 365" stroke="white" strokeWidth="1" />
-      <path d="M300 310 C345 270 405 255 470 248" stroke="white" strokeWidth="0.8" />
-      <path d="M300 210 C332 175 370 158 415 152" stroke="white" strokeWidth="0.8" />
-      {/* Sub-branches left */}
-      <path d="M200 613 C175 590 155 568 145 540" stroke="white" strokeWidth="0.7" />
-      <path d="M165 470 C148 445 138 418 140 388" stroke="white" strokeWidth="0.6" />
-      {/* Sub-branches right */}
-      <path d="M400 613 C425 590 445 568 455 540" stroke="white" strokeWidth="0.7" />
-      <path d="M435 470 C452 445 462 418 460 388" stroke="white" strokeWidth="0.6" />
-      {/* Leaf nodes */}
-      <circle cx="140" cy="620" r="3" fill="white" />
-      <circle cx="100" cy="480" r="3" fill="white" />
-      <circle cx="160" cy="365" r="3" fill="white" />
-      <circle cx="130" cy="248" r="3" fill="white" />
-      <circle cx="185" cy="152" r="3" fill="white" />
-      <circle cx="460" cy="620" r="3" fill="white" />
-      <circle cx="500" cy="480" r="3" fill="white" />
-      <circle cx="440" cy="365" r="3" fill="white" />
-      <circle cx="470" cy="248" r="3" fill="white" />
-      <circle cx="415" cy="152" r="3" fill="white" />
-      <circle cx="300" cy="100" r="4" fill="white" />
+      <defs>
+        {/* Per-source path gradients, source colour → cyan at centre */}
+        {SOURCES.map((s, i) => (
+          <linearGradient
+            key={i} id={`sg${i}`}
+            x1={s.x} y1={s.y} x2={CX} y2={CY}
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%"   stopColor={s.color} stopOpacity="0.0" />
+            <stop offset="30%"  stopColor={s.color} stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#22d3ee"  stopOpacity="0.8" />
+          </linearGradient>
+        ))}
+
+        {/* Per-source node glow */}
+        {SOURCES.map((s, i) => (
+          <radialGradient key={i} id={`ng${i}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%"   stopColor={s.color} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={s.color} stopOpacity="0"    />
+          </radialGradient>
+        ))}
+
+        {/* Central glow */}
+        <radialGradient id="cg" cx="50%" cy="50%" r="50%">
+          <stop offset="0%"   stopColor="#22d3ee" stopOpacity="0.35" />
+          <stop offset="50%"  stopColor="#059669" stopOpacity="0.12" />
+          <stop offset="100%" stopColor="#0891b2" stopOpacity="0"    />
+        </radialGradient>
+
+        {/* Radial fade mask — diagram dissolves at the edges */}
+        <radialGradient id="fadeGrad" cx="50%" cy="53%" r="48%">
+          <stop offset="35%" stopColor="white" stopOpacity="1" />
+          <stop offset="100%" stopColor="white" stopOpacity="0" />
+        </radialGradient>
+        <mask id="fade">
+          <rect width="600" height="930" fill="url(#fadeGrad)" />
+        </mask>
+      </defs>
+
+      <g mask="url(#fade)">
+        {/* ── Paths (tubes) ───────────────────────────────────────────── */}
+        {SOURCES.map((s, i) => (
+          <path
+            key={i}
+            d={`M ${s.x} ${s.y} C ${s.cp1x} ${s.cp1y} ${s.cp2x} ${s.cp2y} ${CX} ${CY}`}
+            stroke={`url(#sg${i})`}
+            strokeWidth="1.4"
+            fill="none"
+          />
+        ))}
+
+        {/* ── Travelling dots along each path ─────────────────────────── */}
+        {SOURCES.map((s, i) => (
+          <circle key={i} r="2.8" fill={s.color} opacity="0.9">
+            <animateMotion
+              dur={s.dur}
+              begin={s.begin}
+              repeatCount="indefinite"
+              path={`M ${s.x} ${s.y} C ${s.cp1x} ${s.cp1y} ${s.cp2x} ${s.cp2y} ${CX} ${CY}`}
+            />
+          </circle>
+        ))}
+
+        {/* ── Source node glows + dots ─────────────────────────────────── */}
+        {SOURCES.map((s, i) => (
+          <g key={i}>
+            <circle cx={s.x} cy={s.y} r="24" fill={`url(#ng${i})`} />
+            <circle cx={s.x} cy={s.y} r="4"  fill={s.color} opacity="0.55" />
+            <circle cx={s.x} cy={s.y} r="2"  fill={s.color} opacity="0.9"  />
+            {/* Label — positioned away from centre */}
+            <text
+              x={s.x + (s.x < CX ? 14 : -14)}
+              y={s.y + 4}
+              fill={s.color}
+              opacity="0.45"
+              fontSize="7.5"
+              fontFamily="Inter, sans-serif"
+              fontWeight="700"
+              letterSpacing="0.1em"
+              textAnchor={s.x < CX ? "start" : "end"}
+            >
+              {s.name.toUpperCase()}
+            </text>
+          </g>
+        ))}
+
+        {/* ── Central Xylem node ───────────────────────────────────────── */}
+        <ellipse cx={CX} cy={CY} rx="115" ry="115" fill="url(#cg)" />
+        <circle cx={CX} cy={CY} r="38" stroke="rgba(34,211,238,0.10)" strokeWidth="1" fill="none" />
+        <circle cx={CX} cy={CY} r="26" stroke="rgba(34,211,238,0.20)" strokeWidth="1"
+          fill="rgba(34,211,238,0.04)" />
+        <circle cx={CX} cy={CY} r="14" fill="rgba(34,211,238,0.15)" />
+        <circle cx={CX} cy={CY} r="6.5" fill="rgba(34,211,238,0.85)" />
+        <circle cx={CX} cy={CY} r="3"   fill="white" opacity="0.95" />
+
+        {/* Subtle pulse ring animation */}
+        <circle cx={CX} cy={CY} r="26" stroke="rgba(34,211,238,0.35)" strokeWidth="1" fill="none">
+          <animate attributeName="r" values="26;42;26" dur="3s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.35;0;0.35" dur="3s" repeatCount="indefinite" />
+        </circle>
+      </g>
     </svg>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Page
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function SignInPage() {
   return (
-    <div className="min-h-screen w-full flex">
-      {/* ── Left panel: brand story ── */}
-      <div className="hidden lg:flex lg:w-[58%] relative bg-[#0a0a0f] flex-col justify-between p-14 overflow-hidden">
-        <BotanicalPattern />
+    <div className="min-h-screen w-full flex" style={{ background: "#040e18" }}>
 
-        {/* Top: logo + name */}
+      {/* ── Left panel ──────────────────────────────────────────────────── */}
+      <div
+        className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-14 overflow-hidden"
+        style={{
+          background: "linear-gradient(145deg, #030d18 0%, #04141f 40%, #051a14 100%)",
+        }}
+      >
+        {/* Synapse diagram fills the panel */}
+        <XylemSynapse />
+
+        {/* Top accent line */}
+        <div className="absolute top-0 left-0 right-0 h-[1px]"
+          style={{ background: "linear-gradient(90deg, transparent, rgba(34,211,238,0.2), transparent)" }} />
+
+        {/* Logo */}
         <div className="relative z-10 flex items-center gap-3">
-          <div className="w-10 h-10 bg-accent rounded-xl flex items-center justify-center text-xl shadow-lg shadow-accent/20">
-            🌱
+          <div
+            className="w-9 h-9 rounded-[10px] flex items-center justify-center shadow-lg"
+            style={{
+              background: "linear-gradient(135deg, #0891b2, #059669)",
+              boxShadow: "0 4px 14px rgba(8,145,178,0.3)",
+            }}
+          >
+            {/* Mini xylem cross-section mark */}
+            <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5">
+              {[0, 60, 120, 180, 240, 300].map((deg) => {
+                const r = (deg * Math.PI) / 180;
+                return (
+                  <line key={deg}
+                    x1="10" y1="10"
+                    x2={10 + Math.cos(r) * 7} y2={10 + Math.sin(r) * 7}
+                    stroke="white" strokeWidth="1.4" strokeLinecap="round" opacity="0.85"
+                  />
+                );
+              })}
+              <circle cx="10" cy="10" r="2.5" fill="white" />
+            </svg>
           </div>
-          <span className="text-2xl font-bold tracking-tight text-white">Xylem</span>
+          <span className="text-[22px] font-bold tracking-tight text-white">Xylem</span>
         </div>
 
-        {/* Center: headline */}
-        <div className="relative z-10 space-y-8">
-          <div>
-            <p className="text-[11px] font-black text-accent/70 uppercase tracking-[0.25em] mb-5">
-              Institutional Memory · Knowledge Synthesis
-            </p>
-            <h1 className="text-5xl font-black text-white leading-[1.1] tracking-tight mb-6">
-              The vascular system<br />
-              for your company's<br />
-              <span className="text-accent">knowledge.</span>
-            </h1>
-            <p className="text-[16px] text-white/50 font-medium leading-relaxed max-w-md">
-              In biology, xylem is the vascular tissue that silently transports nutrients
-              throughout a plant — keeping every cell alive and connected.
-              <br /><br />
-              Xylem does the same for your organisation. Every Slack thread, Drive doc,
-              meeting transcript, and decision flows into one living knowledge base —
-              searchable, cited, and always in context.
-            </p>
-          </div>
-
-          {/* Feature list */}
-          <div className="space-y-4 pt-2">
-            {features.map((f) => (
-              <div key={f.title} className="flex items-start gap-4">
-                <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 shrink-0 mt-0.5">
-                  {f.icon}
-                </div>
-                <div>
-                  <p className="text-[13px] font-bold text-white/90">{f.title}</p>
-                  <p className="text-[12px] text-white/40 mt-0.5 leading-relaxed">{f.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom: tagline */}
-        <div className="relative z-10">
-          <p className="text-[11px] text-white/25 font-medium tracking-wider">
-            Built for Seedling Labs · Internal use only
+        {/* Footer — one line + live dot */}
+        <div className="relative z-10 flex items-end justify-between">
+          <p
+            className="text-[15px] font-semibold leading-snug"
+            style={{ color: "rgba(255,255,255,0.55)" }}
+          >
+            Every source.<br />
+            <span
+              className="text-transparent bg-clip-text font-black"
+              style={{ backgroundImage: "linear-gradient(90deg, #22d3ee, #34d399)" }}
+            >
+              One memory.
+            </span>
           </p>
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <p className="text-[10px] font-medium" style={{ color: "rgba(255,255,255,0.2)" }}>Live</p>
+          </div>
         </div>
       </div>
 
-      {/* ── Right panel: auth ── */}
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#fdfdff] px-8 py-12">
-        {/* Mobile logo (hidden on desktop) */}
-        <div className="lg:hidden flex items-center gap-3 mb-10">
-          <div className="w-10 h-10 bg-accent rounded-xl flex items-center justify-center text-xl shadow-lg shadow-accent/20">
+      {/* ── Right panel ─────────────────────────────────────────────────── */}
+      <div
+        className="flex-1 flex flex-col items-center justify-center relative overflow-hidden"
+        style={{ background: "#f4f8fb" }}
+      >
+        {/* Mobile logo */}
+        <div className="lg:hidden flex items-center gap-3 mb-12">
+          <div className="w-9 h-9 bg-accent rounded-[10px] flex items-center justify-center text-lg shadow-lg shadow-accent/20">
             🌱
           </div>
-          <span className="text-2xl font-bold tracking-tight text-foreground">Xylem</span>
+          <span className="text-xl font-bold tracking-tight text-foreground">Xylem</span>
         </div>
 
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-[360px] px-2">
           <div className="mb-8">
-            <h2 className="text-2xl font-black text-foreground tracking-tight mb-1.5">
+            <h2 className="text-[26px] font-black text-foreground tracking-tight leading-tight mb-2">
               Welcome back
             </h2>
-            <p className="text-sm text-gray-400 font-medium">
-              Sign in to access your organisation's knowledge base.
+            <p className="text-[13px] text-gray-400 font-medium leading-relaxed">
+              Sign in to your organisation's knowledge base.
             </p>
           </div>
 
           <SignIn
             appearance={{
               variables: {
-                colorPrimary: "#5a4efb",
-                colorBackground: "#ffffff",
-                colorInputBackground: "#f8f9fc",
+                colorPrimary: "#0891b2",
+                colorBackground: "#f4f8fb",
+                colorInputBackground: "#ffffff",
                 colorInputText: "#0a0a0f",
                 colorText: "#0a0a0f",
-                colorTextSecondary: "#64748b",
+                colorTextSecondary: "#94a3b8",
                 fontFamily: "Inter, system-ui, sans-serif",
                 fontSize: "14px",
                 borderRadius: "12px",
               },
               elements: {
-                card: "shadow-none border-0 p-0 bg-transparent",
+                card: "shadow-none border-0 p-0 bg-transparent w-full",
                 headerTitle: "hidden",
                 headerSubtitle: "hidden",
                 socialButtonsBlockButton:
-                  "border border-gray-100 bg-white hover:bg-gray-50 text-foreground font-semibold rounded-xl h-11 transition-all",
-                socialButtonsBlockButtonText: "font-semibold text-[13px]",
-                dividerLine: "bg-gray-100",
-                dividerText: "text-gray-400 text-[11px] font-bold uppercase tracking-widest",
-                formFieldLabel: "text-[12px] font-bold text-gray-500 uppercase tracking-wider mb-1",
+                  "border border-gray-200 bg-white hover:bg-gray-50 text-foreground font-semibold rounded-xl h-[46px] transition-all duration-200 shadow-sm",
+                socialButtonsBlockButtonText: "font-semibold text-[13px] text-gray-700",
+                dividerLine: "bg-gray-200",
+                dividerText: "text-gray-300 text-[11px] font-bold uppercase tracking-[0.15em]",
+                formFieldLabel: "text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5",
                 formFieldInput:
-                  "bg-[#f8f9fc] border border-gray-100 rounded-xl h-11 text-[14px] font-medium focus:ring-2 focus:ring-accent/20 focus:border-accent/50 transition-all",
+                  "bg-white border border-gray-200 rounded-xl h-[46px] text-[14px] font-medium text-foreground placeholder:text-gray-300 focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-400/60 transition-all duration-200",
                 formButtonPrimary:
-                  "bg-accent hover:bg-accent-dark text-white font-bold rounded-xl h-11 text-[14px] shadow-md shadow-accent/20 transition-all",
-                footerActionLink: "text-accent font-bold hover:text-accent-dark",
-                identityPreviewText: "text-[13px] font-medium text-foreground",
-                identityPreviewEditButton: "text-accent font-bold text-[12px]",
+                  "bg-[#0891b2] hover:bg-[#0e7490] text-white font-bold rounded-xl h-[46px] text-[14px] shadow-md shadow-cyan-500/20 transition-all duration-200",
+                footerActionLink: "text-[#0891b2] font-semibold hover:text-[#0e7490] transition-colors",
+                footerActionText: "text-[13px] text-gray-400",
+                identityPreviewText: "text-[13px] font-medium",
+                identityPreviewEditButton: "text-[#0891b2] font-semibold text-[12px]",
                 alertText: "text-[13px]",
-                formFieldSuccessText: "text-[12px]",
+                formFieldSuccessText: "text-[12px] text-green-600",
+                formFieldErrorText: "text-[12px] text-red-500",
               },
             }}
           />

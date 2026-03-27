@@ -76,7 +76,7 @@ FastAPI Backend
 | Research Agent | DONE | Multi-hop reasoning, LLM-generated search angles, meeting isolation (prevents mixing), topic filtering, cross-source synthesis with citations |
 | Onboarding Agent | DONE | Personalized knowledge packs for new hires — project history, key decisions, team structure |
 | Orchestrator | DONE | Agent selection, session management, multi-turn conversation support |
-| Guardian Agent | NOT STARTED | Cross-source proactive alerts (see below) |
+| Guardian Agent | DONE (delivery pending Slack token) | Cross-source redundancy prevention — embeds trigger text, searches all sources, ACL filters, LLM-synthesises alert, delivers as Slack thread reply or ClickUp comment, logs to `guardian_alerts` table |
 | Project Manager Agent | NOT STARTED | Action item tracking, follow-up reminders, weekly status reports |
 | Real-Time Meeting Agent | NOT STARTED | Live meeting monitoring, real-time re-litigation alerts |
 
@@ -101,7 +101,7 @@ FastAPI Backend
 | Speaker attribution | DONE | Meeting summaries attribute statements to specific people (who said what). LLM extracts `raised_by`, `assigned_by`, `other_contributors` per discussion point. |
 | Source-type boosting | DONE | Meet/transcript chunks boosted 1.3x, calendar chunks penalized 0.5x for meeting content queries |
 | Acronym buster | DONE | Glossary + AI-powered term lookup |
-| Cross-source redundancy prevention | NOT STARTED | Guardian Agent feature (see Goals section) |
+| Cross-source redundancy prevention | DONE | Guardian Agent: threshold 0.78, dedup by document, ACL-filtered, LLM alert, Slack thread reply + ClickUp comment delivery, `guardian_alerts` audit table, `POST /api/guardian/check` + `GET /api/guardian/alerts` |
 | Entity linking / knowledge graph | NOT STARTED | Auto-link Slack discussion → ClickUp task → Drive doc about same topic. Unified cross-source graph. |
 | Version awareness (draft vs final) | NOT STARTED | Distinguish between draft docs and finalized decisions. Prevent retrieving outdated drafts as truth. |
 | Drift detection | NOT STARTED | Flag when actions (ClickUp tasks, code) contradict recorded decisions. Notify relevant leads. |
@@ -472,6 +472,7 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-03-24 | Guardian Agent: `app/agents/guardian.py`, `GuardianAlert` model, `process_guardian_check` Celery task, `POST /api/guardian/check` + `GET /api/guardian/alerts`. Wired into Slack `handle_message` and ClickUp webhook. Delivery: Slack thread reply (live when bot token set) and ClickUp comment. |
 | 2026-03-23 | Three-tier RBAC: User/Group/GroupMembership models, ACL overhaul (admin bypass, group:<uuid>, user:<email>), User+Group management APIs + frontend tabs |
 | 2026-03-23 | Scoped document upload: POST /api/ingest/upload with public/group/private scope + PDF extraction |
 | 2026-03-23 | Meet discrepancy detection: new meeting decisions compared against all active DecisionRecords via cosine similarity + LLM classification (CONTRADICTION/UPDATE/RECONFIRMATION) |

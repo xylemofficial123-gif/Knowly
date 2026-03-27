@@ -189,6 +189,83 @@ def sync_slack(self):
         db.close()
 
 
+@celery_app.task(bind=True, max_retries=2)
+def process_guardian_check(
+    self,
+    text: str,
+    user_email: str,
+    trigger_source: str,
+    source_id: str = "",
+    source_url: str = "",
+    slack_channel_id: str = "",
+    slack_thread_ts: str = "",
+    clickup_task_id: str = "",
+):
+    """
+    Run a Guardian check on `text` and deliver an in-context alert if matches found.
+    Logs the result to guardian_alerts regardless of outcome.
+    """
+    from app.agents.guardian import (
+        GuardianAgent,
+        deliver_slack_alert,
+        deliver_clickup_comment,
+    )
+    from app.core.database import SessionLocal
+    from app.models import GuardianAlert
+
+    db = SessionLocal()
+    try:
+        agent = GuardianAgent()
+        result = agent.check(text, user_email, trigger_source, source_id, source_url)
+
+        status = "suppressed"
+        if result.has_match:
+            # Attempt delivery
+            delivered = False
+            if trigger_source == "slack" and slack_channel_id and slack_thread_ts:
+                delivered = deliver_slack_alert(result, slack_channel_id, slack_thread_ts)
+            elif trigger_source == "clickup" and clickup_task_id:
+                delivered = deliver_clickup_comment(result, clickup_task_id)
+            status = "sent" if delivered else "pending"
+
+        # Persist the alert (or suppression record) for audit
+        alert = GuardianAlert(
+            trigger_source=trigger_source,
+            source_id=source_id or None,
+            source_url=source_url or None,
+            user_email=user_email,
+            text_snippet=text[:500],
+            match_count=str(len(result.matches)),
+            highest_score=result.highest_score,
+            alert_status=status,
+            matches_json=[
+                {
+                    "source": m.source,
+                    "title": m.title,
+                    "url": m.url,
+                    "date": m.date,
+                    "preview": m.preview,
+                    "score": m.score,
+                }
+                for m in result.matches
+            ],
+        )
+        db.add(alert)
+        db.commit()
+        logger.info(
+            f"Guardian check complete: source={trigger_source}, "
+            f"match={result.has_match}, status={status}, alert_id={alert.id}"
+        )
+        return {"has_match": result.has_match, "status": status, "alert_id": str(alert.id)}
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Guardian check failed: {e}")
+        raise self.retry(exc=e, countdown=60)
+    finally:
+        db.close()
+
+
 @celery_app.task(bind=True, max_retries=3)
 def reingest_clickup_task(self, task_id: str, space_id: str = "", list_id: str = ""):
     from app.services.settings_service import is_source_enabled

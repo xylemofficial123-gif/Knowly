@@ -127,3 +127,23 @@ class GroupMembership(Base):
     # group_admin | member
     role = Column(String, default="member", nullable=False)
     added_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class GuardianAlert(Base):
+    """Log of every Guardian Agent check that produced a match."""
+    __tablename__ = "guardian_alerts"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Where the trigger came from: slack | clickup | drive | manual
+    trigger_source = Column(String, nullable=False)
+    # Unique ID of the triggering content, e.g. "slack:C123:1234567890.123"
+    source_id = Column(String, nullable=True, index=True)
+    source_url = Column(String, nullable=True)
+    user_email = Column(String, nullable=False, index=True)
+    # First 500 chars of the text that triggered the check
+    text_snippet = Column(Text, nullable=True)
+    match_count = Column(String, default="0")
+    highest_score = Column(Float, default=0.0)
+    # pending | sent | failed | suppressed (below threshold / too short)
+    alert_status = Column(String, default="pending")
+    matches_json = Column(JSON, default=list)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

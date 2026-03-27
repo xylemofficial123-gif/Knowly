@@ -59,7 +59,7 @@ export default function Sidebar() {
 
       {/* Primary Action Button */}
       <div className="px-5 mb-10">
-        <button 
+        <button
           onClick={() => window.location.href = "/"}
           className="w-full bg-accent text-white py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-accent-dark transition-all shadow-md shadow-accent/10 active:scale-95"
         >
@@ -77,8 +77,8 @@ export default function Sidebar() {
                 key={item.id}
                 href={item.href}
                 className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-[14px] font-bold transition-all ${
-                  pathname === item.href 
-                    ? "bg-accent-soft text-accent" 
+                  pathname === item.href
+                    ? "bg-accent-soft text-accent"
                     : "text-gray-500 hover:bg-gray-50 hover:text-foreground"
                 }`}
               >
