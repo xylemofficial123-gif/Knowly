@@ -66,6 +66,11 @@ def sync_meet_transcripts(self):
 
 @celery_app.task(bind=True, max_retries=3)
 def ingest_slack_message(self, message: dict, channel_id: str):
+    from app.services.settings_service import is_source_enabled
+    if not is_source_enabled("slack"):
+        logger.info(f"Slack message ingestion skipped (source disabled)")
+        return
+
     try:
         from app.services.slack_ingestion import ingest_message
 
@@ -186,6 +191,11 @@ def sync_slack(self):
 
 @celery_app.task(bind=True, max_retries=3)
 def reingest_clickup_task(self, task_id: str, space_id: str = "", list_id: str = ""):
+    from app.services.settings_service import is_source_enabled
+    if not is_source_enabled("clickup"):
+        logger.info(f"ClickUp task re-ingestion skipped for {task_id} (source disabled)")
+        return
+
     try:
         import requests
         from app.services.clickup_ingestion import ingest_task, _headers, BASE_URL

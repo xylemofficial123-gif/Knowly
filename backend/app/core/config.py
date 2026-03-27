@@ -1,6 +1,11 @@
 import os
+import certifi
 from pathlib import Path
 from pydantic_settings import BaseSettings
+
+# Fix macOS SSL verification issues
+os.environ["SSL_CERT_FILE"] = certifi.where()
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 # Root of the backend folder
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent

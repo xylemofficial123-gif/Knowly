@@ -39,6 +39,7 @@ slack-sdk>=3.34.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
 python-dotenv>=1.0.1
+certifi>=2024.0.0
 
 # HTTP
 requests>=2.32.0
