@@ -66,24 +66,21 @@ def ask(req: AskRequest):
         return AgentResponse(**result)
     except Exception as e:
         logger.error(f"Agent error: {e}")
-        # Graceful degradation: surface a useful answer instead of frontend "API Request Failed"
-        # when all LLM backends are temporarily unavailable.
-        if "All LLM providers exhausted" in str(e):
-            return AgentResponse(
-                answer=(
-                    "I can reach your knowledge sources, but the answer model is temporarily "
-                    "unavailable. Please try again in 1-2 minutes."
-                ),
-                citations=[],
-                chunks_used=[],
-                agent="research",
-                query_type="factual",
-                reasoning_steps=[],
-                confidence=0.0,
-                session_id=req.session_id,
-                audit_log_id="",
-            )
-        raise HTTPException(status_code=500, detail=str(e))
+        # Graceful degradation: never bubble provider outages to the UI as 500.
+        return AgentResponse(
+            answer=(
+                "I can reach your knowledge sources, but the answer model is temporarily "
+                "unavailable. Please try again in 1-2 minutes."
+            ),
+            citations=[],
+            chunks_used=[],
+            agent="research",
+            query_type="factual",
+            reasoning_steps=[],
+            confidence=0.0,
+            session_id=req.session_id,
+            audit_log_id="",
+        )
 
 
 @router.post("/ask/simple", response_model=OracleResponse)
