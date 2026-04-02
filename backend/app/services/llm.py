@@ -32,7 +32,7 @@ GEMINI_MODELS = [
 # Groq models — fast, free, high limits (14,400 req/day)
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
-    "gemma2-9b-it",
+    "llama-3.1-8b-instant",
 ]
 
 # Free OpenRouter fallback models (last resort)
