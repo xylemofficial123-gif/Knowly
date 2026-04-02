@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_TOKEN_JSON: str = ""
     GOOGLE_TRANSCRIPTS_FOLDER_ID: str = ""
     GOOGLE_DRIVE_FOLDER_IDS: str = ""
 

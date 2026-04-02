@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "sh -c 'if [ \"$SERVICE_MODE\" = \"worker\" ]; then mkdir -p /tmp/railway-health && echo ok > /tmp/railway-health/health && (cd /tmp/railway-health && python -m http.server \"$PORT\" >/tmp/health_server.log 2>&1 &) && celery -A app.workers.celery_app worker --beat --loglevel=info --concurrency=2; else uvicorn app.main:app --host 0.0.0.0 --port $PORT; fi'"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"

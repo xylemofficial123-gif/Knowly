@@ -81,13 +81,17 @@ python -c "from app.services.drive_ingestion import ingest_all_drive; print(f'In
 python -c "from app.services.meet_ingestion import ingest_drive_transcripts; print(f'Ingested {ingest_drive_transcripts()} meetings')"
 ```
 
-### 7. Start background workers (separate terminals)
+### 7. Start background workers
 
 ```bash
-# Celery worker (processes background tasks)
-celery -A app.workers.celery_app worker --loglevel=info
+# Recommended for constrained deployments (single process):
+celery -A app.workers.celery_app worker --beat --loglevel=info --concurrency=2
+```
 
-# Celery beat (schedules Drive/Meet sync every 30 min)
+If you have enough resources, you can still run separate processes:
+
+```bash
+celery -A app.workers.celery_app worker --loglevel=info
 celery -A app.workers.celery_app beat --loglevel=info
 ```
 

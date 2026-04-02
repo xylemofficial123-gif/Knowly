@@ -66,8 +66,18 @@ def _get_credentials():
 
     creds = None
 
+    # Preferred for deployed environments (Railway/Render/etc):
+    # pass full token JSON via env var to avoid interactive local-server OAuth.
+    if settings.GOOGLE_TOKEN_JSON:
+        try:
+            token_info = json.loads(settings.GOOGLE_TOKEN_JSON)
+            creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+        except Exception as e:
+            logger.warning(f"Failed to parse GOOGLE_TOKEN_JSON: {e}")
+            creds = None
+
     # Load saved token if it exists
-    if os.path.exists(TOKEN_PATH):
+    if not creds and os.path.exists(TOKEN_PATH):
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
     # If no valid creds, do browser login
@@ -76,6 +86,14 @@ def _get_credentials():
             from google.auth.transport.requests import Request
             creds.refresh(Request())
         else:
+            # In hosted environments (Railway/Render/etc), interactive OAuth is not supported.
+            # Require GOOGLE_TOKEN_JSON to avoid binding a local callback server.
+            if os.getenv("RAILWAY_ENVIRONMENT_NAME") or os.getenv("RAILWAY_PROJECT_ID"):
+                raise ValueError(
+                    "Missing valid Google token in deployment. Set GOOGLE_TOKEN_JSON "
+                    "to a full authorized_user JSON value."
+                )
+
             if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
                 raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env")
 

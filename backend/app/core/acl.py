@@ -19,6 +19,7 @@ import time
 from typing import Optional, List
 
 from slack_sdk import WebClient
+from sqlalchemy import func
 
 from app.core.config import settings
 
@@ -34,10 +35,15 @@ def _get_slack_client() -> WebClient:
     return WebClient(token=settings.SLACK_BOT_TOKEN)
 
 
+def _norm_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
 def get_user_slack_channels(user_email: str) -> list[str]:
     if not settings.SLACK_BOT_TOKEN:
         return []
 
+    user_email = _norm_email(user_email)
     now = time.time()
     cached = _channel_cache.get(user_email)
     if cached and (now - cached[1]) < _CACHE_TTL:
@@ -79,6 +85,7 @@ _ROLE_CACHE_TTL = 300  # 5 minutes
 
 def get_user_role(user_email: str) -> str:
     """Return the user's role: admin | group_admin | member. Defaults to member."""
+    user_email = _norm_email(user_email)
     now = time.time()
     cached = _user_role_cache.get(user_email)
     if cached and (now - cached[1]) < _ROLE_CACHE_TTL:
@@ -90,7 +97,7 @@ def get_user_role(user_email: str) -> str:
 
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.email == user_email).first()
+            user = db.query(User).filter(func.lower(User.email) == user_email).first()
             role = user.role if user else "member"
         finally:
             db.close()
@@ -104,6 +111,7 @@ def get_user_role(user_email: str) -> str:
 
 def get_user_group_ids(user_email: str) -> list[str]:
     """Return list of group UUIDs (as strings) the user belongs to."""
+    user_email = _norm_email(user_email)
     now = time.time()
     cached = _user_groups_cache.get(user_email)
     if cached and (now - cached[1]) < _ROLE_CACHE_TTL:
@@ -117,7 +125,7 @@ def get_user_group_ids(user_email: str) -> list[str]:
         try:
             memberships = (
                 db.query(GroupMembership)
-                .filter(GroupMembership.user_email == user_email)
+                .filter(func.lower(GroupMembership.user_email) == user_email)
                 .all()
             )
             group_ids = [str(m.group_id) for m in memberships]
@@ -157,6 +165,8 @@ def user_can_see_chunk(
     if not chunk_acl:
         return True
 
+    user_email = _norm_email(user_email)
+
     # Admins see everything
     if role is None:
         role = get_user_role(user_email)
@@ -178,12 +188,12 @@ def user_can_see_chunk(
 
         # Private user ACL: "user:<email>"
         elif entry.startswith("user:"):
-            target_email = entry[len("user:"):]
+            target_email = _norm_email(entry[len("user:"):])
             if target_email == user_email:
                 return True
 
         # Legacy: bare email match (Drive permissions, meeting attendees)
-        elif entry == user_email:
+        elif _norm_email(entry) == user_email:
             return True
 
     # Slack channel ACL (legacy)
