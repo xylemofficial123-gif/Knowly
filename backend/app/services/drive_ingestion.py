@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import sys
 
 from app.core.config import settings
 from app.services.chunker import chunk_and_store
@@ -88,7 +89,9 @@ def _get_credentials():
         else:
             # In hosted environments (Railway/Render/etc), interactive OAuth is not supported.
             # Require GOOGLE_TOKEN_JSON to avoid binding a local callback server.
-            if os.getenv("RAILWAY_ENVIRONMENT_NAME") or os.getenv("RAILWAY_PROJECT_ID"):
+            # In any non-interactive/server runtime, do not attempt browser OAuth callbacks.
+            # This avoids binding localhost:8080 in deployed containers.
+            if os.getenv("PORT") or os.getenv("CI") or not sys.stdin.isatty():
                 raise ValueError(
                     "Missing valid Google token in deployment. Set GOOGLE_TOKEN_JSON "
                     "to a full authorized_user JSON value."
