@@ -161,6 +161,10 @@ def user_can_see_chunk(
     Pass `role` and `group_ids` if already fetched (avoids redundant DB hits
     when filtering many chunks in a single request).
     """
+    # Emergency switch for demos/debugging: bypass ACL checks entirely.
+    if settings.BYPASS_ACL:
+        return True
+
     # Empty ACL → public
     if not chunk_acl:
         return True
