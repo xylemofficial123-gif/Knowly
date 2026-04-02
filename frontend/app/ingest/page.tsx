@@ -84,9 +84,19 @@ interface GroupRecord {
 }
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion" | "users" | "groups" | "upload">(
+  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion" | "users" | "groups" | "upload" | "connections">(
     "ingestion"
   );
+
+  // Connections state
+  interface ConnectionStatus {
+    connected: boolean;
+    workspace_name?: string;
+    team_id?: string;
+    connected_at?: string;
+  }
+  const [clickupStatus, setClickupStatus] = useState<ConnectionStatus | null>(null);
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
   const [feedbackList, setFeedbackList] = useState<FeedbackItem[]>([]);
@@ -355,6 +365,38 @@ export default function AdminPage() {
     }
   };
 
+  const fetchClickupStatus = async () => {
+    setConnectionsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/oauth/clickup/status`);
+      const data = await res.json();
+      setClickupStatus(data);
+    } catch (e) {
+      console.error("Failed to fetch ClickUp status:", e);
+    } finally {
+      setConnectionsLoading(false);
+    }
+  };
+
+  const connectClickUp = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/oauth/clickup/authorize`);
+      const data = await res.json();
+      window.location.href = data.url;
+    } catch (e) {
+      console.error("Failed to get ClickUp auth URL:", e);
+    }
+  };
+
+  const disconnectClickUp = async () => {
+    try {
+      await fetch(`${API_URL}/api/oauth/clickup/disconnect`, { method: "DELETE" });
+      fetchClickupStatus();
+    } catch (e) {
+      console.error("Failed to disconnect ClickUp:", e);
+    }
+  };
+
   useEffect(() => {
     if (tab === "audit") fetchAuditLog();
     else if (tab === "review") fetchReviewQueue();
@@ -366,7 +408,21 @@ export default function AdminPage() {
     } else if (tab === "users") fetchUsers();
     else if (tab === "groups") fetchGroups();
     else if (tab === "upload") fetchGroups();
+    else if (tab === "connections") fetchClickupStatus();
   }, [tab]);
+
+  // Handle OAuth callback redirect params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("clickup") === "connected") {
+      setTab("connections");
+      fetchClickupStatus();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("clickup") === "error") {
+      setTab("connections");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   const handleReview = async (id: string, action: "approve" | "reject") => {
     try {
@@ -423,6 +479,7 @@ export default function AdminPage() {
   };
 
   const tabs = [
+    { key: "connections", label: "Connections" },
     { key: "metrics", label: "Metrics" },
     { key: "audit", label: "Audit Log" },
     { key: "review", label: "Review Queue" },
@@ -463,6 +520,104 @@ export default function AdminPage() {
         <div className="flex items-center gap-2 p-4">
           <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
           Loading...
+        </div>
+      )}
+
+      {/* Connections Tab */}
+      {tab === "connections" && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-1">Integrations</h2>
+            <p className="text-sm text-gray-400">Connect your tools so Xylem can ingest data and deliver alerts.</p>
+          </div>
+
+          {connectionsLoading && (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+              Checking connection status...
+            </div>
+          )}
+
+          {/* ClickUp Card */}
+          {!connectionsLoading && (
+            <div className="bg-[#1a1a2e] border border-gray-700 rounded-xl p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-[#7B68EE] rounded-lg flex items-center justify-center text-white font-bold text-sm">CU</div>
+                  <div>
+                    <h3 className="text-white font-semibold">ClickUp</h3>
+                    <p className="text-xs text-gray-400">Ingest tasks, comments, and deliver Guardian alerts as ClickUp comments</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {clickupStatus?.connected ? (
+                    <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-700 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                      Not connected
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {clickupStatus?.connected && (
+                <div className="mt-4 pt-4 border-t border-gray-700 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-400 text-xs">Workspace</p>
+                    <p className="text-white font-medium">{clickupStatus.workspace_name || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400 text-xs">Team ID</p>
+                    <p className="text-white font-medium">{clickupStatus.team_id || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400 text-xs">Connected</p>
+                    <p className="text-white font-medium">
+                      {clickupStatus.connected_at
+                        ? new Date(clickupStatus.connected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                {clickupStatus?.connected ? (
+                  <button
+                    onClick={disconnectClickUp}
+                    className="px-4 py-2 text-sm bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    onClick={connectClickUp}
+                    className="px-4 py-2 text-sm bg-[#7B68EE] text-white rounded-lg hover:bg-[#6a58d6] transition font-medium"
+                  >
+                    Connect ClickUp
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Slack Card — managed by teammate */}
+          <div className="bg-[#1a1a2e] border border-gray-700 rounded-xl p-6 opacity-60">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#4A154B] rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
+                <div>
+                  <h3 className="text-white font-semibold">Slack</h3>
+                  <p className="text-xs text-gray-400">Real-time message ingestion, slash commands, Guardian thread alerts</p>
+                </div>
+              </div>
+              <span className="text-xs text-gray-500 bg-gray-800 px-2.5 py-1 rounded-full">Coming soon</span>
+            </div>
+          </div>
         </div>
       )}
 

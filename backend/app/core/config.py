@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     SLACK_SIGNING_SECRET: str = ""
     SLACK_CLIENT_SECRET: str = ""
 
+    # ClickUp OAuth (replaces plain API key + team ID)
+    CLICKUP_CLIENT_ID: str = ""
+    CLICKUP_CLIENT_SECRET: str = ""
+    # Legacy fallback — used if no OAuth connection exists in DB
     CLICKUP_API_KEY: str = ""
     CLICKUP_TEAM_ID: str = ""
 
@@ -41,6 +45,10 @@ class Settings(BaseSettings):
     CLERK_SECRET_KEY: str = ""
     BYPASS_ACL: bool = False
     EXTRA_CORS_ORIGINS: str = ""
+
+    # OAuth redirect URLs
+    BACKEND_URL: str = "https://backend-api-production-148e.up.railway.app"
+    FRONTEND_URL: str = "https://xylem-memory.vercel.app"
 
     NO_INDEX_CHANNEL_IDS: str = ""
     RELITIGATION_THRESHOLD: float = 0.82

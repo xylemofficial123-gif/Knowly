@@ -8,8 +8,19 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.clickup.com/api/v2"
 
 
+def _get_token() -> str:
+    """Return ClickUp access token — OAuth DB connection first, env var fallback."""
+    from app.core.token_store import get_token
+    token = get_token("clickup")
+    if token:
+        return token
+    if settings.CLICKUP_API_KEY:
+        return settings.CLICKUP_API_KEY
+    raise RuntimeError("ClickUp not connected — no OAuth token or API key configured")
+
+
 def _headers() -> dict:
-    return {"Authorization": settings.CLICKUP_API_KEY, "Content-Type": "application/json"}
+    return {"Authorization": _get_token(), "Content-Type": "application/json"}
 
 
 def get_all_spaces(team_id: str) -> list[dict]:
@@ -104,9 +115,13 @@ def ingest_task(task: dict, space_id: str, list_id: str):
 
 
 def ingest_all_clickup(team_id: str = None):
-    team_id = team_id or settings.CLICKUP_TEAM_ID
     if not team_id:
-        logger.error("No ClickUp team ID configured")
+        # Prefer OAuth connection team_id, fall back to env var
+        from app.core.token_store import get_connection
+        conn = get_connection("clickup")
+        team_id = (conn.team_id if conn else None) or settings.CLICKUP_TEAM_ID
+    if not team_id:
+        logger.error("No ClickUp team ID configured — connect via OAuth or set CLICKUP_TEAM_ID")
         return 0
 
     total = 0

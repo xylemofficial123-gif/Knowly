@@ -129,6 +129,22 @@ class GroupMembership(Base):
     added_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class OAuthConnection(Base):
+    """Stores OAuth tokens for third-party integrations (ClickUp, Slack, etc.)."""
+    __tablename__ = "oauth_connections"
+    id             = Column(String, primary_key=True)   # "clickup" | "slack"
+    access_token   = Column(Text, nullable=False)
+    token_type     = Column(String, default="bearer")
+    scope          = Column(Text, nullable=True)
+    team_id        = Column(String, nullable=True)       # ClickUp workspace/team ID
+    workspace_name = Column(String, nullable=True)
+    bot_user_id    = Column(String, nullable=True)       # Slack bot user ID
+    workspace_id   = Column(String, nullable=True)       # Slack workspace ID
+    connected_by   = Column(String, nullable=True)
+    connected_at   = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
 class GuardianAlert(Base):
     """Log of every Guardian Agent check that produced a match."""
     __tablename__ = "guardian_alerts"

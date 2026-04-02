@@ -278,13 +278,15 @@ def deliver_slack_alert(result: GuardianResult, channel_id: str, thread_ts: str)
 
 def deliver_clickup_comment(result: GuardianResult, task_id: str):
     """Post the guardian alert as a comment on a ClickUp task."""
+    from app.core.token_store import get_token
     from app.core.config import settings
-    if not settings.CLICKUP_API_KEY:
-        logger.info("Guardian: ClickUp delivery skipped — no API key")
+    token = get_token("clickup") or settings.CLICKUP_API_KEY
+    if not token:
+        logger.info("Guardian: ClickUp delivery skipped — not connected")
         return False
     try:
         import requests
-        headers = {"Authorization": settings.CLICKUP_API_KEY, "Content-Type": "application/json"}
+        headers = {"Authorization": token, "Content-Type": "application/json"}
         # Strip Slack markdown for plain-text ClickUp comment
         comment_text = (
             result.alert_text
