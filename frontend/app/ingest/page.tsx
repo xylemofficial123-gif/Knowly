@@ -89,13 +89,19 @@ export default function AdminPage() {
   );
 
   // Connections state
-  interface ConnectionStatus {
+  interface ClickUpStatus {
     connected: boolean;
     workspace_name?: string;
     team_id?: string;
     connected_at?: string;
   }
-  const [clickupStatus, setClickupStatus] = useState<ConnectionStatus | null>(null);
+  interface GoogleStatus {
+    connected: boolean;
+    connected_email?: string;
+    connected_at?: string;
+  }
+  const [clickupStatus, setClickupStatus] = useState<ClickUpStatus | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
@@ -366,7 +372,6 @@ export default function AdminPage() {
   };
 
   const fetchClickupStatus = async () => {
-    setConnectionsLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/oauth/clickup/status`);
       const data = await res.json();
@@ -397,6 +402,35 @@ export default function AdminPage() {
     }
   };
 
+  const fetchGoogleStatus = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/oauth/google/status`);
+      const data = await res.json();
+      setGoogleStatus(data);
+    } catch (e) {
+      console.error("Failed to fetch Google status:", e);
+    }
+  };
+
+  const connectGoogle = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/oauth/google/authorize`);
+      const data = await res.json();
+      window.location.href = data.url;
+    } catch (e) {
+      console.error("Failed to get Google auth URL:", e);
+    }
+  };
+
+  const disconnectGoogle = async () => {
+    try {
+      await fetch(`${API_URL}/api/oauth/google/disconnect`, { method: "DELETE" });
+      fetchGoogleStatus();
+    } catch (e) {
+      console.error("Failed to disconnect Google:", e);
+    }
+  };
+
   useEffect(() => {
     if (tab === "audit") fetchAuditLog();
     else if (tab === "review") fetchReviewQueue();
@@ -408,7 +442,12 @@ export default function AdminPage() {
     } else if (tab === "users") fetchUsers();
     else if (tab === "groups") fetchGroups();
     else if (tab === "upload") fetchGroups();
-    else if (tab === "connections") fetchClickupStatus();
+    else if (tab === "connections") {
+      setConnectionsLoading(true);
+      Promise.all([fetchClickupStatus(), fetchGoogleStatus()]).finally(() =>
+        setConnectionsLoading(false)
+      );
+    }
   }, [tab]);
 
   // Handle OAuth callback redirect params
@@ -419,6 +458,13 @@ export default function AdminPage() {
       fetchClickupStatus();
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("clickup") === "error") {
+      setTab("connections");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("google") === "connected") {
+      setTab("connections");
+      fetchGoogleStatus();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("google") === "error") {
       setTab("connections");
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -599,6 +645,71 @@ export default function AdminPage() {
                     className="px-4 py-2 text-sm bg-[#7B68EE] text-white rounded-lg hover:bg-[#6a58d6] transition font-medium"
                   >
                     Connect ClickUp
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Google Card */}
+          {!connectionsLoading && (
+            <div className="bg-[#1a1a2e] border border-gray-700 rounded-xl p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-sm font-bold">
+                    <span style={{ background: "linear-gradient(135deg, #4285F4 25%, #EA4335 25%, #EA4335 50%, #FBBC05 50%, #FBBC05 75%, #34A853 75%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>G</span>
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold">Google</h3>
+                    <p className="text-xs text-gray-400">Drive docs, Meet transcripts, Calendar events</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {googleStatus?.connected ? (
+                    <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-700 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                      Not connected
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {googleStatus?.connected && (
+                <div className="mt-4 pt-4 border-t border-gray-700 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-400 text-xs">Account</p>
+                    <p className="text-white font-medium">{googleStatus.connected_email || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400 text-xs">Connected</p>
+                    <p className="text-white font-medium">
+                      {googleStatus.connected_at
+                        ? new Date(googleStatus.connected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                {googleStatus?.connected ? (
+                  <button
+                    onClick={disconnectGoogle}
+                    className="px-4 py-2 text-sm bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    onClick={connectGoogle}
+                    className="px-4 py-2 text-sm bg-white text-gray-800 rounded-lg hover:bg-gray-100 transition font-medium"
+                  >
+                    Connect Google
                   </button>
                 )}
               </div>

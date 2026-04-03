@@ -130,16 +130,18 @@ class GroupMembership(Base):
 
 
 class OAuthConnection(Base):
-    """Stores OAuth tokens for third-party integrations (ClickUp, Slack, etc.)."""
+    """Stores OAuth tokens for third-party integrations (ClickUp, Slack, Google, etc.)."""
     __tablename__ = "oauth_connections"
-    id             = Column(String, primary_key=True)   # "clickup" | "slack"
+    id             = Column(String, primary_key=True)   # "clickup" | "slack" | "google"
     access_token   = Column(Text, nullable=False)
+    refresh_token  = Column(Text, nullable=True)        # Google (and future providers) refresh token
     token_type     = Column(String, default="bearer")
     scope          = Column(Text, nullable=True)
     team_id        = Column(String, nullable=True)       # ClickUp workspace/team ID
     workspace_name = Column(String, nullable=True)
     bot_user_id    = Column(String, nullable=True)       # Slack bot user ID
     workspace_id   = Column(String, nullable=True)       # Slack workspace ID
+    connected_email = Column(String, nullable=True)      # Google account email
     connected_by   = Column(String, nullable=True)
     connected_at   = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at     = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

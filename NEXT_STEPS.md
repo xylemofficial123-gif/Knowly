@@ -1,6 +1,6 @@
 # Next Steps — Xylem Intelligence
 
-## 1. Per-User Google OAuth (PRIORITY — build next)
+## 1. Per-User Google OAuth ✅ DONE (2026-04-03)
 
 Replace the single shared `google_token.json` with per-user OAuth connections,
 same pattern as ClickUp OAuth already built.
@@ -51,6 +51,23 @@ they get blocked by ACL. Need a `UserIdentity` table mapping primary email → a
 - `UserIdentity` model: `primary_email`, `provider` (clickup/slack/google), `external_email`
 - Update `user_can_see_chunk()` in `acl.py` to fetch all aliases before checking ACL
 - Admin UI: simple form to link "my ClickUp email is X"
+
+---
+
+## 2. Register Google OAuth Redirect URI in Google Cloud Console (NEXT — do this now)
+
+Before the Google OAuth flow can work, you must add the callback URL to your Google Cloud project:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Click on your OAuth 2.0 Client ID (the one with `GOOGLE_CLIENT_ID`)
+3. Under "Authorized redirect URIs", add:
+   `https://backend-api-production-148e.up.railway.app/api/oauth/google/callback`
+4. Save
+5. Go to "OAuth consent screen" → Scopes → add:
+   - `https://www.googleapis.com/auth/drive.readonly`
+   - `https://www.googleapis.com/auth/calendar.readonly`
+   - `openid`, `email`
+6. Test: Click "Connect Google" on the Connections tab → log in with excylem@gmail.com
 
 ---
 

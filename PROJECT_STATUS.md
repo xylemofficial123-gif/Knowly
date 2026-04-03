@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-03-23
+> **Last updated**: 2026-04-03
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -60,12 +60,13 @@ FastAPI Backend
 
 | Source | Status | Details |
 |--------|--------|---------|
-| Google Drive | DONE | OAuth 2.0, 30-min auto-sync, incremental (skip unchanged), edit history + revisions |
-| Google Meet | DONE | Auto-discovers Gemini notes, AI summaries with decisions/action items/takeaways |
-| Google Calendar | DONE | 30 days ahead + 7 behind, IST timestamps, attendees, meet links, 30-min sync |
+| Google Drive | DONE | Per-user OAuth 2.0 (DB connection), 30-min auto-sync, incremental (skip unchanged), edit history + revisions |
+| Google Meet | DONE | Per-user OAuth 2.0 (DB connection), auto-discovers Gemini notes, AI summaries with decisions/action items/takeaways |
+| Google Calendar | DONE | Per-user OAuth 2.0 (DB connection), 30 days ahead + 7 behind, IST timestamps, attendees, meet links, 30-min sync |
 | Manual Transcripts | DONE | VTT/SRT upload with speaker detection |
 | Slack | BUILT, NOT CONNECTED | Code exists, needs bot token. Will enable real-time monitoring + Guardian Agent |
-| ClickUp | BUILT, NOT CONNECTED | Code exists, needs API key |
+| ClickUp | DONE | OAuth 2.0 connected (excylem@gmail.com workspace), real-time webhook, member-email ACL |
+| Google (OAuth) | DONE | Per-user OAuth 2.0 at /api/oauth/google/authorize — connects individual accounts for Drive/Meet/Calendar ingestion. Auto-refreshes tokens via refresh_token. |
 | Gmail | SKIPPED | Privacy concern — company email contains personal/sensitive content. Drive + Meet + Calendar + Slack covers 90%+ of company knowledge. May revisit with opt-in label-based filtering. |
 
 ### Multi-Agent System

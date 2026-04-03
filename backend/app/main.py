@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.database import create_tables
+from app.core.database import create_tables, run_migrations
 from app.services.embeddings import ensure_collection
 from app.api.oracle import router as oracle_router
 from app.api.admin import router as admin_router
@@ -314,6 +314,7 @@ else:
 async def lifespan(app: FastAPI):
     logger.info("Starting Knowledge Agent API...")
     create_tables()
+    run_migrations()
     ensure_collection()
     yield
     logger.info("Shutting down Knowledge Agent API...")

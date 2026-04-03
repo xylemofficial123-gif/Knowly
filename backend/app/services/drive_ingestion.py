@@ -61,14 +61,41 @@ SUPPORTED_TYPES = {
 
 
 def _get_credentials():
-    """Get Google OAuth credentials, prompting browser login if needed."""
+    """Get Google OAuth credentials.
+
+    Priority:
+    1. DB OAuth connection (per-user Google OAuth via /api/oauth/google/authorize)
+    2. GOOGLE_TOKEN_JSON env var (legacy shared token)
+    3. Local google_token.json file (local dev only)
+    4. Interactive browser login (local dev only, never in deployment)
+    """
     from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
 
+    # 1. DB OAuth connection (preferred — per-user, refreshable)
+    try:
+        from app.core.token_store import get_connection, save_connection as _save_conn
+        conn = get_connection("google")
+        if conn and conn.access_token:
+            creds = Credentials(
+                token=conn.access_token,
+                refresh_token=conn.refresh_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CLIENT_ID,
+                client_secret=settings.GOOGLE_CLIENT_SECRET,
+                scopes=SCOPES,
+            )
+            if not creds.valid and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                # Persist the new access_token back to DB
+                _save_conn("google", creds.token, refresh_token=creds.refresh_token)
+                logger.info("Google access token refreshed and saved to DB")
+            return creds
+    except Exception as e:
+        logger.warning(f"DB Google credentials failed, falling back to legacy token: {e}")
+
+    # 2. Legacy: GOOGLE_TOKEN_JSON env var (shared token, no auto-refresh saved to DB)
     creds = None
-
-    # Preferred for deployed environments (Railway/Render/etc):
-    # pass full token JSON via env var to avoid interactive local-server OAuth.
     if settings.GOOGLE_TOKEN_JSON:
         try:
             token_info = json.loads(settings.GOOGLE_TOKEN_JSON)
@@ -77,29 +104,26 @@ def _get_credentials():
             logger.warning(f"Failed to parse GOOGLE_TOKEN_JSON: {e}")
             creds = None
 
-    # Load saved token if it exists
+    # 3. Local token file
     if not creds and os.path.exists(TOKEN_PATH):
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
-    # If no valid creds, do browser login
+    # Refresh if expired
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            from google.auth.transport.requests import Request
             creds.refresh(Request())
         else:
-            # In hosted environments (Railway/Render/etc), interactive OAuth is not supported.
-            # Require GOOGLE_TOKEN_JSON to avoid binding a local callback server.
-            # In any non-interactive/server runtime, do not attempt browser OAuth callbacks.
-            # This avoids binding localhost:8080 in deployed containers.
+            # In hosted environments, interactive OAuth is not supported.
             if os.getenv("PORT") or os.getenv("CI") or not sys.stdin.isatty():
                 raise ValueError(
-                    "Missing valid Google token in deployment. Set GOOGLE_TOKEN_JSON "
-                    "to a full authorized_user JSON value."
+                    "No valid Google token found. Connect Google via the Connections tab "
+                    "or set GOOGLE_TOKEN_JSON in Railway env vars."
                 )
 
             if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
                 raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env")
 
+            from google_auth_oauthlib.flow import InstalledAppFlow
             client_config = {
                 "installed": {
                     "client_id": settings.GOOGLE_CLIENT_ID,
@@ -109,7 +133,6 @@ def _get_credentials():
                     "redirect_uris": ["http://localhost:8080"],
                 }
             }
-
             flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
             creds = flow.run_local_server(port=8080, open_browser=True, prompt="consent")
 
