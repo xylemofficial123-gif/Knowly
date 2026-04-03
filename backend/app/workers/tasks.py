@@ -275,12 +275,24 @@ def reingest_clickup_task(self, task_id: str, space_id: str = "", list_id: str =
 
     try:
         import requests
-        from app.services.clickup_ingestion import ingest_task, _headers, BASE_URL
+        from app.services.clickup_ingestion import ingest_task, _headers, BASE_URL, get_list_member_emails, get_space_member_emails
 
         resp = requests.get(f"{BASE_URL}/task/{task_id}", headers=_headers())
         resp.raise_for_status()
         task = resp.json()
-        ingest_task(task, space_id, list_id)
+
+        # Resolve ACL from list/space members
+        resolved_list_id = list_id or (task.get("list", {}).get("id", "") if isinstance(task.get("list"), dict) else "")
+        resolved_space_id = space_id or (task.get("space", {}).get("id", "") if isinstance(task.get("space"), dict) else "")
+        acl = []
+        if resolved_list_id:
+            acl = get_list_member_emails(resolved_list_id)
+        if not acl and resolved_space_id:
+            acl = get_space_member_emails(resolved_space_id)
+        if not acl:
+            acl = ["public"]
+
+        ingest_task(task, acl)
         logger.info(f"Re-ingested ClickUp task {task_id}")
     except Exception as e:
         logger.error(f"ClickUp task re-ingestion failed: {e}")

@@ -72,7 +72,33 @@ def get_task_comments(task_id: str) -> list[dict]:
     return resp.json().get("comments", [])
 
 
-def ingest_task(task: dict, space_id: str, list_id: str):
+def get_list_member_emails(list_id: str) -> list[str]:
+    """Fetch email addresses of all members who have access to a ClickUp list."""
+    try:
+        resp = requests.get(f"{BASE_URL}/list/{list_id}/member", headers=_headers(), timeout=10)
+        resp.raise_for_status()
+        members = resp.json().get("members", [])
+        emails = [m.get("email", "") for m in members if m.get("email")]
+        return emails
+    except Exception as e:
+        logger.warning(f"Could not fetch members for list {list_id}: {e}")
+        return []
+
+
+def get_space_member_emails(space_id: str) -> list[str]:
+    """Fetch email addresses of all members of a ClickUp space (fallback)."""
+    try:
+        resp = requests.get(f"{BASE_URL}/space/{space_id}/member", headers=_headers(), timeout=10)
+        resp.raise_for_status()
+        members = resp.json().get("members", [])
+        emails = [m.get("email", "") for m in members if m.get("email")]
+        return emails
+    except Exception as e:
+        logger.warning(f"Could not fetch members for space {space_id}: {e}")
+        return []
+
+
+def ingest_task(task: dict, acl: list[str]):
     task_id = task["id"]
     name = task.get("name", "")
     description = task.get("description", "") or ""
@@ -126,7 +152,6 @@ def ingest_task(task: dict, space_id: str, list_id: str):
         return
 
     url = task.get("url", f"https://app.clickup.com/t/{task_id}")
-    acl = [space_id, list_id]
 
     chunk_and_store(
         source="clickup",
@@ -158,15 +183,23 @@ def ingest_all_clickup(team_id: str = None):
         lists = get_all_lists(space_id)
         logger.info(f"Space '{space_name}': {len(lists)} lists")
 
+        # Fetch space-level members as fallback ACL
+        space_emails = get_space_member_emails(space_id)
+
         for lst in lists:
             list_id = lst["id"]
             list_name = lst.get("name", list_id)
             tasks = get_all_tasks(list_id)
             logger.info(f"  List '{list_name}': {len(tasks)} tasks")
 
+            # List members take priority; fall back to space members; fall back to public
+            list_emails = get_list_member_emails(list_id)
+            acl = list_emails or space_emails or ["public"]
+            logger.info(f"  List '{list_name}' ACL: {acl}")
+
             for task in tasks:
                 try:
-                    ingest_task(task, space_id, list_id)
+                    ingest_task(task, acl)
                     total += 1
                 except Exception as e:
                     logger.error(f"Failed to ingest task {task.get('id')}: {e}")
