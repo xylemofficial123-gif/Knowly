@@ -135,3 +135,21 @@ def clickup_disconnect():
     """Remove the ClickUp OAuth connection."""
     delete_connection("clickup")
     return {"status": "disconnected"}
+
+
+@router.post("/clickup/register-webhook")
+def clickup_register_webhook():
+    """Register ClickUp webhook so real-time task events fire to this backend."""
+    conn = get_connection("clickup")
+    if not conn:
+        raise HTTPException(status_code=400, detail="ClickUp not connected")
+    if not conn.team_id:
+        raise HTTPException(status_code=400, detail="No team_id found in connection")
+
+    from app.services.clickup_ingestion import register_webhook
+    endpoint = f"{settings.BACKEND_URL}/api/clickup/webhook"
+    try:
+        result = register_webhook(conn.team_id, endpoint)
+        return {"status": "registered", "webhook_id": result.get("id"), "endpoint": endpoint}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Webhook registration failed: {e}")
