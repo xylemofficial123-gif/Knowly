@@ -996,9 +996,10 @@ export default function AdminPage() {
                     );
                   })}
                   {(settings.google_drive_folder_ids || []).length === 0 && (
-                    <span className="text-sm text-gray-400 italic">
-                      No folders selected. Scanning entire Drive (default).
-                    </span>
+                    <div className="flex items-start gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-400 text-xs w-full">
+                      <span>⚠️</span>
+                      <span>No folders selected — entire Drive will be scanned. Select specific folders below to restrict ingestion.</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1015,40 +1016,36 @@ export default function AdminPage() {
                   placeholder="Type a folder name to filter..."
                   className="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm mb-3"
                 />
-                {folderSearch.trim() === "" ? (
-                  <p className="text-xs text-gray-400">Start typing to see matching folders from your Drive.</p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
-                    {availableFolders
-                      .filter((f) =>
-                        f.name.toLowerCase().includes(folderSearch.toLowerCase())
-                      )
-                      .map((folder) => {
-                        const already = settings.google_drive_folder_ids?.includes(folder.id);
-                        return (
-                          <button
-                            key={folder.id}
-                            onClick={() => { addFolder(folder.id); setFolderSearch(""); }}
-                            disabled={already}
-                            className={`text-left p-3 rounded-lg border text-sm transition-all shadow-sm ${
-                              already
-                                ? "bg-gray-100 text-gray-400 border-gray-200 cursor-default"
-                                : "hover:border-blue-300 hover:bg-blue-50 text-gray-700"
-                            }`}
-                          >
-                            <div className="font-medium truncate">{folder.name}</div>
-                            <div className="text-xs font-mono text-gray-400 truncate mt-0.5">{folder.id}</div>
-                            {already && <div className="text-xs text-green-600 mt-0.5">Already added</div>}
-                          </button>
-                        );
-                      })}
-                    {availableFolders.filter((f) =>
-                      f.name.toLowerCase().includes(folderSearch.toLowerCase())
-                    ).length === 0 && (
-                      <p className="text-sm text-gray-400 col-span-3">No folders match &ldquo;{folderSearch}&rdquo;</p>
-                    )}
-                  </div>
-                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
+                  {availableFolders
+                    .filter((f) =>
+                      folderSearch.trim() === "" || f.name.toLowerCase().includes(folderSearch.toLowerCase())
+                    )
+                    .map((folder) => {
+                      const already = settings.google_drive_folder_ids?.includes(folder.id);
+                      return (
+                        <button
+                          key={folder.id}
+                          onClick={() => { addFolder(folder.id); setFolderSearch(""); }}
+                          disabled={already}
+                          className={`text-left p-3 rounded-lg border text-sm transition-all shadow-sm ${
+                            already
+                              ? "bg-gray-700/40 text-gray-500 border-gray-600 cursor-default"
+                              : "border-gray-600 hover:border-blue-400 hover:bg-blue-500/10 text-gray-200"
+                          }`}
+                        >
+                          <div className="font-medium truncate">📁 {folder.name}</div>
+                          <div className="text-xs font-mono text-gray-500 truncate mt-0.5">{folder.id}</div>
+                          {already && <div className="text-xs text-green-400 mt-0.5">✓ Added</div>}
+                        </button>
+                      );
+                    })}
+                  {availableFolders.filter((f) =>
+                    folderSearch.trim() === "" || f.name.toLowerCase().includes(folderSearch.toLowerCase())
+                  ).length === 0 && (
+                    <p className="text-sm text-gray-400 col-span-3">No folders match &ldquo;{folderSearch}&rdquo;</p>
+                  )}
+                </div>
               </div>
             </div>
           </section>
