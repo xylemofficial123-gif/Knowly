@@ -90,7 +90,31 @@ def ingest_task(task: dict, space_id: str, list_id: str):
         if text:
             comment_texts.append(f"{commenter}: {text}")
 
+    # Status, assignees, due date, priority
+    status = task.get("status", {}).get("status", "") if isinstance(task.get("status"), dict) else ""
+    assignees = [a.get("username", "") for a in task.get("assignees", []) if a.get("username")]
+    due_date_ms = task.get("due_date")
+    due_date_str = ""
+    if due_date_ms:
+        import datetime
+        try:
+            due_date_str = datetime.datetime.utcfromtimestamp(int(due_date_ms) / 1000).strftime("%d/%m/%Y")
+        except Exception:
+            pass
+    priority = task.get("priority", {}).get("priority", "") if isinstance(task.get("priority"), dict) else ""
+    list_name = task.get("list", {}).get("name", "") if isinstance(task.get("list"), dict) else ""
+
     text_parts = [f"Task: {name}"]
+    if list_name:
+        text_parts.append(f"List: {list_name}")
+    if status:
+        text_parts.append(f"Status: {status}")
+    if assignees:
+        text_parts.append(f"Assignees: {', '.join(assignees)}")
+    if due_date_str:
+        text_parts.append(f"Due date: {due_date_str}")
+    if priority:
+        text_parts.append(f"Priority: {priority}")
     if description:
         text_parts.append(f"Description: {description}")
     if comment_texts:
