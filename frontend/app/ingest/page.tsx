@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -84,6 +85,9 @@ interface GroupRecord {
 }
 
 export default function AdminPage() {
+  const { user } = useUser();
+  const currentUserEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
+
   const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion" | "users" | "groups" | "upload" | "connections">(
     "ingestion"
   );
@@ -202,7 +206,10 @@ export default function AdminPage() {
 
   const fetchAvailableFolders = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/ingest/drive/folders`);
+      const url = currentUserEmail
+        ? `${API_URL}/api/ingest/drive/folders?user_email=${encodeURIComponent(currentUserEmail)}`
+        : `${API_URL}/api/ingest/drive/folders`;
+      const res = await fetch(url);
       const data = await res.json();
       setAvailableFolders(data.folders || []);
     } catch (e) {
@@ -403,8 +410,9 @@ export default function AdminPage() {
   };
 
   const fetchGoogleStatus = async () => {
+    if (!currentUserEmail) return;
     try {
-      const res = await fetch(`${API_URL}/api/oauth/google/status`);
+      const res = await fetch(`${API_URL}/api/oauth/google/status?user_email=${encodeURIComponent(currentUserEmail)}`);
       const data = await res.json();
       setGoogleStatus(data);
     } catch (e) {
@@ -413,8 +421,9 @@ export default function AdminPage() {
   };
 
   const connectGoogle = async () => {
+    if (!currentUserEmail) return;
     try {
-      const res = await fetch(`${API_URL}/api/oauth/google/authorize`);
+      const res = await fetch(`${API_URL}/api/oauth/google/authorize?user_email=${encodeURIComponent(currentUserEmail)}`);
       const data = await res.json();
       window.location.href = data.url;
     } catch (e) {
@@ -423,8 +432,9 @@ export default function AdminPage() {
   };
 
   const disconnectGoogle = async () => {
+    if (!currentUserEmail) return;
     try {
-      await fetch(`${API_URL}/api/oauth/google/disconnect`, { method: "DELETE" });
+      await fetch(`${API_URL}/api/oauth/google/disconnect?user_email=${encodeURIComponent(currentUserEmail)}`, { method: "DELETE" });
       fetchGoogleStatus();
     } catch (e) {
       console.error("Failed to disconnect Google:", e);

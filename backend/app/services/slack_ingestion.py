@@ -10,6 +10,45 @@ def _get_client() -> WebClient:
     return WebClient(token=settings.SLACK_BOT_TOKEN)
 
 
+def get_channel_member_emails(channel_id: str) -> list[str]:
+    """Fetch email addresses of all members in a Slack channel.
+
+    Returns a list of emails, or ["public"] if unable to fetch.
+    Skips bots and members without verified emails.
+    """
+    client = _get_client()
+    try:
+        member_ids = []
+        cursor = None
+        while True:
+            kwargs = {"channel": channel_id, "limit": 200}
+            if cursor:
+                kwargs["cursor"] = cursor
+            result = client.conversations_members(**kwargs)
+            member_ids.extend(result.get("members", []))
+            cursor = result.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+
+        emails = []
+        for user_id in member_ids:
+            try:
+                info = client.users_info(user=user_id)
+                user = info.get("user", {})
+                if user.get("is_bot") or user.get("id") == "USLACKBOT":
+                    continue
+                email = user.get("profile", {}).get("email", "")
+                if email:
+                    emails.append(email)
+            except Exception:
+                continue
+
+        return emails if emails else ["public"]
+    except Exception as e:
+        logger.warning(f"Could not fetch members for channel {channel_id}: {e}")
+        return ["public"]
+
+
 def get_channel_history(channel_id: str, limit: int = 1000) -> list[dict]:
     client = _get_client()
     messages = []
@@ -55,7 +94,7 @@ def get_thread_replies(channel_id: str, thread_ts: str) -> list[dict]:
     return replies
 
 
-def format_message_for_storage(msg: dict, channel_id: str) -> dict:
+def format_message_for_storage(msg: dict, channel_id: str, acl: list[str] = None) -> dict:
     ts = msg.get("ts", "")
     user = msg.get("user", "unknown")
     text = msg.get("text", "")
@@ -68,14 +107,14 @@ def format_message_for_storage(msg: dict, channel_id: str) -> dict:
         "source_id": source_id,
         "text": text,
         "url": url,
-        "acl": [channel_id],
+        "acl": acl if acl else ["public"],
         "slack_user_id": user,
         "title": f"Slack message in #{channel_id}",
         "thread_ts": thread_ts,
     }
 
 
-def ingest_message(msg: dict, channel_id: str):
+def ingest_message(msg: dict, channel_id: str, channel_acl: list[str] = None):
     if msg.get("bot_id"):
         return
     if not msg.get("text"):
@@ -85,7 +124,11 @@ def ingest_message(msg: dict, channel_id: str):
     if channel_id in no_index:
         return
 
-    formatted = format_message_for_storage(msg, channel_id)
+    # If no ACL provided (real-time event), fetch channel members now
+    if channel_acl is None:
+        channel_acl = get_channel_member_emails(channel_id)
+
+    formatted = format_message_for_storage(msg, channel_id, acl=channel_acl)
 
     reply_count = msg.get("reply_count", 0)
     thread_text = formatted["text"]
@@ -116,11 +159,15 @@ def ingest_message(msg: dict, channel_id: str):
 def backfill_channel(channel_id: str):
     logger.info(f"Backfilling channel {channel_id}")
     messages = get_channel_history(channel_id)
-    count = 0
 
+    # Fetch channel member emails once — reused for every message in this channel
+    channel_acl = get_channel_member_emails(channel_id)
+    logger.info(f"Channel {channel_id} ACL: {channel_acl}")
+
+    count = 0
     for msg in messages:
         try:
-            ingest_message(msg, channel_id)
+            ingest_message(msg, channel_id, channel_acl=channel_acl)
             count += 1
         except Exception as e:
             logger.error(f"Failed to ingest message {msg.get('ts')}: {e}")

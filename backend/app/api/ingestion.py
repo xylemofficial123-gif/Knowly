@@ -99,12 +99,12 @@ def trigger_ingestion(req: TriggerRequest):
         logger.error(f"Ingestion trigger failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 @router.get("/drive/folders")
-def list_folders():
-    """List available Google Drive folders for selection."""
+def list_folders(user_email: str = ""):
+    """List available Google Drive folders for the requesting user."""
     from app.services.drive_ingestion import list_drive_folders
 
     try:
-        folders = list_drive_folders()
+        folders = list_drive_folders(user_email=user_email or None)
         return {"status": "ok", "folders": folders}
     except Exception as e:
         logger.error(f"Failed to list Drive folders: {e}")

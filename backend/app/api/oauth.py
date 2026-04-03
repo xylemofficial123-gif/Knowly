@@ -177,14 +177,21 @@ def clickup_register_webhook():
 # ── Google ─────────────────────────────────────────────────────────────────────
 
 @router.get("/google/authorize")
-def google_authorize():
-    """Return the Google OAuth URL for the frontend to redirect to."""
+def google_authorize(user_email: str = ""):
+    """Return the Google OAuth URL for the frontend to redirect to.
+
+    user_email: the Xylem account email of the user initiating the connection.
+    The callback will save the token as 'google:{user_email}'.
+    """
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=501, detail="GOOGLE_CLIENT_ID not configured")
+    if not user_email:
+        raise HTTPException(status_code=400, detail="user_email is required")
 
     state = secrets.token_urlsafe(32)
+    # Store user_email in the state so the callback knows whose token to save
     try:
-        _redis().setex(f"oauth:state:{state}", 600, "google")
+        _redis().setex(f"oauth:state:{state}", 600, f"google:{user_email}")
     except Exception as e:
         logger.warning(f"Redis unavailable for OAuth state — proceeding without CSRF: {e}")
 
@@ -210,13 +217,16 @@ def google_callback(code: str, state: str = "", error: str = ""):
         logger.warning(f"Google OAuth error: {error}")
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?google=error")
 
-    # CSRF state check (best-effort)
+    # Retrieve user_email from state (stored as "google:{user_email}")
+    user_email = ""
     try:
         stored = _redis().get(f"oauth:state:{state}")
         if stored is None:
             logger.warning("Google OAuth state token not found in Redis — may have expired")
         else:
             _redis().delete(f"oauth:state:{state}")
+            if stored.startswith("google:"):
+                user_email = stored[len("google:"):]
     except Exception:
         pass
 
@@ -260,8 +270,12 @@ def google_callback(code: str, state: str = "", error: str = ""):
     except Exception as e:
         logger.warning(f"Could not fetch Google user info: {e}")
 
+    # Key = "google:{xylem_user_email}" — one row per user
+    # Fall back to connected_email if we lost the state (Redis miss)
+    connection_key = f"google:{user_email}" if user_email else f"google:{connected_email}"
+
     save_connection(
-        "google",
+        connection_key,
         access_token,
         refresh_token=refresh_token,
         token_type=token_data.get("token_type", "bearer"),
@@ -269,14 +283,19 @@ def google_callback(code: str, state: str = "", error: str = ""):
         connected_email=connected_email,
     )
 
-    logger.info(f"Google OAuth connected — account: {connected_email}")
+    logger.info(f"Google OAuth connected — xylem_user={user_email}, google_account={connected_email}")
     return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?google=connected")
 
 
 @router.get("/google/status")
-def google_status():
-    """Return the current Google connection status."""
-    conn = get_connection("google")
+def google_status(user_email: str = ""):
+    """Return the Google connection status for a specific user."""
+    if not user_email:
+        return {"connected": False}
+    conn = get_connection(f"google:{user_email}")
+    if not conn:
+        # Legacy fallback: single shared "google" connection
+        conn = get_connection("google")
     if not conn:
         return {"connected": False}
     return {
@@ -287,7 +306,10 @@ def google_status():
 
 
 @router.delete("/google/disconnect")
-def google_disconnect():
-    """Remove the Google OAuth connection."""
-    delete_connection("google")
+def google_disconnect(user_email: str = ""):
+    """Remove the Google OAuth connection for a specific user."""
+    if user_email:
+        delete_connection(f"google:{user_email}")
+    else:
+        delete_connection("google")
     return {"status": "disconnected"}

@@ -60,41 +60,56 @@ SUPPORTED_TYPES = {
 }
 
 
-def _get_credentials():
-    """Get Google OAuth credentials.
+def _get_credentials(user_email: str = None):
+    """Get Google OAuth credentials for a specific user (or the shared legacy connection).
 
     Priority:
-    1. DB OAuth connection (per-user Google OAuth via /api/oauth/google/authorize)
-    2. GOOGLE_TOKEN_JSON env var (legacy shared token)
-    3. Local google_token.json file (local dev only)
-    4. Interactive browser login (local dev only, never in deployment)
+    1. DB connection keyed as "google:{user_email}"  (per-user OAuth)
+    2. DB connection keyed as "google"               (legacy single shared connection)
+    3. GOOGLE_TOKEN_JSON env var                     (legacy env-var token)
+    4. Local google_token.json file                  (local dev only)
+    5. Interactive browser login                     (local dev only)
     """
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
 
-    # 1. DB OAuth connection (preferred — per-user, refreshable)
+    def _creds_from_conn(conn, save_key: str):
+        """Build Credentials from an OAuthConnection, refreshing if needed."""
+        from app.core.token_store import save_connection as _save_conn
+        creds = Credentials(
+            token=conn.access_token,
+            refresh_token=conn.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+            scopes=SCOPES,
+        )
+        if not creds.valid and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            _save_conn(save_key, creds.token, refresh_token=creds.refresh_token)
+            logger.info(f"Google access token refreshed for {save_key}")
+        return creds
+
+    # 1. Per-user DB connection
+    if user_email:
+        try:
+            from app.core.token_store import get_connection
+            conn = get_connection(f"google:{user_email}")
+            if conn and conn.access_token:
+                return _creds_from_conn(conn, f"google:{user_email}")
+        except Exception as e:
+            logger.warning(f"Per-user Google credentials failed for {user_email}: {e}")
+
+    # 2. Legacy shared DB connection
     try:
-        from app.core.token_store import get_connection, save_connection as _save_conn
+        from app.core.token_store import get_connection
         conn = get_connection("google")
         if conn and conn.access_token:
-            creds = Credentials(
-                token=conn.access_token,
-                refresh_token=conn.refresh_token,
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=settings.GOOGLE_CLIENT_ID,
-                client_secret=settings.GOOGLE_CLIENT_SECRET,
-                scopes=SCOPES,
-            )
-            if not creds.valid and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                # Persist the new access_token back to DB
-                _save_conn("google", creds.token, refresh_token=creds.refresh_token)
-                logger.info("Google access token refreshed and saved to DB")
-            return creds
+            return _creds_from_conn(conn, "google")
     except Exception as e:
-        logger.warning(f"DB Google credentials failed, falling back to legacy token: {e}")
+        logger.warning(f"Shared Google DB credentials failed: {e}")
 
-    # 2. Legacy: GOOGLE_TOKEN_JSON env var (shared token, no auto-refresh saved to DB)
+    # 3. Legacy: GOOGLE_TOKEN_JSON env var
     creds = None
     if settings.GOOGLE_TOKEN_JSON:
         try:
@@ -104,7 +119,7 @@ def _get_credentials():
             logger.warning(f"Failed to parse GOOGLE_TOKEN_JSON: {e}")
             creds = None
 
-    # 3. Local token file
+    # 4. Local token file
     if not creds and os.path.exists(TOKEN_PATH):
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
@@ -113,13 +128,10 @@ def _get_credentials():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            # In hosted environments, interactive OAuth is not supported.
             if os.getenv("PORT") or os.getenv("CI") or not sys.stdin.isatty():
                 raise ValueError(
-                    "No valid Google token found. Connect Google via the Connections tab "
-                    "or set GOOGLE_TOKEN_JSON in Railway env vars."
+                    "No valid Google token found. Connect Google via the Connections tab."
                 )
-
             if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
                 raise ValueError("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env")
 
@@ -136,7 +148,6 @@ def _get_credentials():
             flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
             creds = flow.run_local_server(port=8080, open_browser=True, prompt="consent")
 
-        # Save token for next time
         with open(TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
         logger.info(f"Google token saved to {TOKEN_PATH}")
@@ -144,10 +155,10 @@ def _get_credentials():
     return creds
 
 
-def _get_drive_service():
+def _get_drive_service(user_email: str = None):
     from googleapiclient.discovery import build
 
-    creds = _get_credentials()
+    creds = _get_credentials(user_email)
     return build("drive", "v3", credentials=creds)
 
 
@@ -239,12 +250,13 @@ def _get_folder_tree(service, root_ids: list[str]) -> set[str]:
 
 
 def list_drive_files(
-    folder_id: str = None, 
-    folder_ids: list[str] = None, 
+    folder_id: str = None,
+    folder_ids: list[str] = None,
     max_results: int = 500,
-    recursive: bool = True
+    recursive: bool = True,
+    user_email: str = None,
 ) -> list[dict]:
-    service = _get_drive_service()
+    service = _get_drive_service(user_email)
 
     mime_queries = [f"mimeType='{mt}'" for mt in SUPPORTED_TYPES.keys()]
     mime_filter = "(" + " or ".join(mime_queries) + ")"
@@ -293,9 +305,9 @@ def list_drive_files(
     return all_results
 
 
-def list_drive_folders() -> list[dict]:
+def list_drive_folders(user_email: str = None) -> list[dict]:
     """List all non-trashed folders in the user's Drive."""
-    service = _get_drive_service()
+    service = _get_drive_service(user_email)
     query = "mimeType='application/vnd.google-apps.folder' and trashed=false"
     
     results = []
@@ -397,8 +409,8 @@ def _build_edit_history_text(file_info: dict, revision_history: list[dict]) -> s
     return "\n".join(parts)
 
 
-def ingest_drive_file(file_info: dict) -> bool:
-    service = _get_drive_service()
+def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
+    service = _get_drive_service(user_email)
     file_id = file_info["id"]
     title = file_info.get("name", f"Drive file {file_id}")
     url = file_info.get("webViewLink", f"https://drive.google.com/file/d/{file_id}")
@@ -447,7 +459,7 @@ def ingest_drive_file(file_info: dict) -> bool:
     return True
 
 
-def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None) -> int:
+def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None, user_email: str = None) -> int:
     from app.core.database import SessionLocal
     from app.models import Document
 
@@ -465,11 +477,11 @@ def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None) -> int
         target_ids = settings.google_drive_folder_ids
 
     if target_ids:
-        logger.info(f"Scanning for files in folders: {target_ids}")
-        files = list_drive_files(folder_ids=target_ids)
+        logger.info(f"Scanning for files in folders: {target_ids} (user={user_email})")
+        files = list_drive_files(folder_ids=target_ids, user_email=user_email)
     else:
-        logger.info("Scanning all Drive files (no folder restriction)")
-        files = list_drive_files()
+        logger.info(f"Scanning all Drive files (user={user_email})")
+        files = list_drive_files(user_email=user_email)
 
     logger.info(f"Found {len(files)} Drive files to check")
 
@@ -505,7 +517,7 @@ def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None) -> int
                 pass  # If we can't parse the date, re-ingest to be safe
 
         try:
-            if ingest_drive_file(f):
+            if ingest_drive_file(f, user_email=user_email):
                 count += 1
                 logger.info(f"  Ingested: {f.get('name')}")
         except Exception as e:

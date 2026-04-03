@@ -15,8 +15,8 @@ DAYS_AHEAD = 30
 DAYS_BEHIND = 7
 
 
-def _get_calendar_service():
-    creds = _get_credentials()
+def _get_calendar_service(user_email: str = None):
+    creds = _get_credentials(user_email)
     return build("calendar", "v3", credentials=creds)
 
 
@@ -94,9 +94,9 @@ def _format_event_text(event: dict) -> str:
     return "\n".join(lines)
 
 
-def fetch_calendar_events(days_ahead: int = DAYS_AHEAD, days_behind: int = DAYS_BEHIND) -> list[dict]:
+def fetch_calendar_events(days_ahead: int = DAYS_AHEAD, days_behind: int = DAYS_BEHIND, user_email: str = None) -> list[dict]:
     """Fetch calendar events from the past N days to the next N days."""
-    service = _get_calendar_service()
+    service = _get_calendar_service(user_email)
     now = now_utc()
 
     time_min = (now - timedelta(days=days_behind)).isoformat()
@@ -127,9 +127,9 @@ def fetch_calendar_events(days_ahead: int = DAYS_AHEAD, days_behind: int = DAYS_
     return all_events
 
 
-def sync_calendar() -> int:
+def sync_calendar(user_email: str = None) -> int:
     """Sync calendar events into the knowledge base."""
-    events = fetch_calendar_events()
+    events = fetch_calendar_events(user_email=user_email)
 
     count = 0
     for event in events:

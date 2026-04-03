@@ -51,12 +51,23 @@ def sync_meet_transcripts(self):
             logger.info("Meet transcript sync skipped (disabled in settings)")
             return 0
 
-        logger.info("Starting sync for Meet transcripts")
         from app.services.meet_ingestion import ingest_drive_transcripts
 
-        count = ingest_drive_transcripts()
-        logger.info(f"Meet sync complete: {count} transcripts")
-        return count
+        user_emails = _get_all_google_user_emails(db)
+        if not user_emails:
+            logger.info("Meet sync: no Google connections found")
+            return 0
+
+        total = 0
+        for user_email in user_emails:
+            logger.info(f"Starting Meet sync for user={user_email}")
+            try:
+                count = ingest_drive_transcripts(user_email=user_email)
+                logger.info(f"Meet sync complete for user={user_email}: {count} transcripts")
+                total += count
+            except Exception as e:
+                logger.error(f"Meet sync failed for user={user_email}: {e}")
+        return total
     except Exception as e:
         logger.error(f"Meet transcript sync failed: {e}")
         raise self.retry(exc=e, countdown=300)
@@ -112,6 +123,18 @@ def process_decision_extraction_for_message(self, text: str, chunk_id: str, sour
         raise self.retry(exc=e, countdown=60)
 
 
+def _get_all_google_user_emails(db) -> list[str]:
+    """Return all Xylem user emails that have a Google OAuth connection (google:{email} rows)."""
+    from app.models import OAuthConnection
+    conns = db.query(OAuthConnection).filter(OAuthConnection.id.like("google:%")).all()
+    emails = [c.id[len("google:"):] for c in conns if c.id.startswith("google:")]
+    # Also include legacy single "google" connection as a fallback (no user email needed)
+    legacy = db.query(OAuthConnection).filter(OAuthConnection.id == "google").first()
+    if legacy and not emails:
+        emails = [None]
+    return emails
+
+
 @celery_app.task(bind=True, max_retries=3)
 def sync_drive(self):
     db = SessionLocal()
@@ -122,14 +145,24 @@ def sync_drive(self):
             logger.info("Drive sync skipped (disabled in settings)")
             return 0
 
-        logger.info("Starting background Drive sync")
         from app.services.drive_ingestion import ingest_all_drive
-
-        # Pass folder IDs from DB if they exist
         folder_ids = settings.google_drive_folder_ids if settings else None
-        count = ingest_all_drive(folder_ids=folder_ids)
-        logger.info(f"Drive sync complete: {count} files")
-        return count
+
+        user_emails = _get_all_google_user_emails(db)
+        if not user_emails:
+            logger.info("Drive sync: no Google connections found")
+            return 0
+
+        total = 0
+        for user_email in user_emails:
+            logger.info(f"Starting Drive sync for user={user_email}")
+            try:
+                count = ingest_all_drive(folder_ids=folder_ids, user_email=user_email)
+                logger.info(f"Drive sync complete for user={user_email}: {count} files")
+                total += count
+            except Exception as e:
+                logger.error(f"Drive sync failed for user={user_email}: {e}")
+        return total
     except Exception as e:
         logger.error(f"Drive sync failed: {e}")
         raise self.retry(exc=e, countdown=300)
@@ -147,12 +180,23 @@ def sync_calendar(self):
             logger.info("Calendar sync skipped (disabled in settings)")
             return 0
 
-        logger.info("Starting background calendar sync")
         from app.services.calendar_sync import sync_calendar as run_calendar_sync
 
-        count = run_calendar_sync()
-        logger.info(f"Calendar sync complete: {count} events")
-        return count
+        user_emails = _get_all_google_user_emails(db)
+        if not user_emails:
+            logger.info("Calendar sync: no Google connections found")
+            return 0
+
+        total = 0
+        for user_email in user_emails:
+            logger.info(f"Starting Calendar sync for user={user_email}")
+            try:
+                count = run_calendar_sync(user_email=user_email)
+                logger.info(f"Calendar sync complete for user={user_email}: {count} events")
+                total += count
+            except Exception as e:
+                logger.error(f"Calendar sync failed for user={user_email}: {e}")
+        return total
     except Exception as e:
         logger.error(f"Calendar sync failed: {e}")
         raise self.retry(exc=e, countdown=300)

@@ -68,17 +68,17 @@ Meeting content:
 
 # --- Google Drive transcript auto-discovery (OAuth) ---
 
-def _get_drive_service():
+def _get_drive_service(user_email: str = None):
     """Reuse the OAuth credentials from drive_ingestion."""
     from app.services.drive_ingestion import _get_credentials
     from googleapiclient.discovery import build
 
-    creds = _get_credentials()
+    creds = _get_credentials(user_email)
     return build("drive", "v3", credentials=creds)
 
 
-def find_meet_transcripts() -> list[dict]:
-    service = _get_drive_service()
+def find_meet_transcripts(user_email: str = None) -> list[dict]:
+    service = _get_drive_service(user_email)
 
     # Find Gemini meeting notes and transcripts
     query = (
@@ -403,13 +403,13 @@ def ingest_meet_transcript(file_info: dict) -> dict:
     return summary_data
 
 
-def ingest_drive_transcripts() -> int:
+def ingest_drive_transcripts(user_email: str = None) -> int:
     """Auto-discover and ingest all meeting transcripts from Drive."""
     from app.core.database import SessionLocal
     from app.models import Document
     from datetime import datetime, timezone
 
-    transcripts = find_meet_transcripts()
+    transcripts = find_meet_transcripts(user_email)
     logger.info(f"Found {len(transcripts)} meeting transcripts in Drive")
 
     # Check which ones we already have
