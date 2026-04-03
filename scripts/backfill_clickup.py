@@ -22,9 +22,12 @@ def main():
     logger.info("Ensuring Qdrant collection exists...")
     ensure_collection()
 
-    team_id = settings.CLICKUP_TEAM_ID
+    # Prefer OAuth connection team_id, fall back to env var
+    from app.core.token_store import get_connection
+    conn = get_connection("clickup")
+    team_id = (conn.team_id if conn else None) or settings.CLICKUP_TEAM_ID
     if not team_id:
-        logger.error("CLICKUP_TEAM_ID not set. Set it in .env or as environment variable.")
+        logger.error("No ClickUp team ID found. Connect via OAuth in the UI or set CLICKUP_TEAM_ID in .env.")
         sys.exit(1)
 
     logger.info(f"Starting ClickUp backfill for team {team_id}...")
