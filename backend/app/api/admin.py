@@ -603,3 +603,58 @@ def trigger_decision_extraction():
     except Exception as e:
         logger.error(f"Decision extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+VALID_SOURCES = {"drive", "meet", "calendar", "slack", "clickup", "upload"}
+
+@router.delete("/clear-source/{source}")
+def clear_source(source: str):
+    """Delete all ingested data for a given source (drive, meet, calendar, slack, clickup, upload)."""
+    if source not in VALID_SOURCES:
+        raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of: {', '.join(VALID_SOURCES)}")
+
+    db = SessionLocal()
+    try:
+        # Collect document IDs for this source
+        docs = db.query(Document).filter(Document.source == source).all()
+        doc_ids = [d.id for d in docs]
+        embedding_ids = []
+
+        # Collect embedding_ids from chunks before deleting
+        if doc_ids:
+            chunks = db.query(Chunk).filter(Chunk.document_id.in_(doc_ids)).all()
+            embedding_ids = [c.embedding_id for c in chunks if c.embedding_id]
+            # Delete chunks
+            db.query(Chunk).filter(Chunk.document_id.in_(doc_ids)).delete(synchronize_session=False)
+            # Delete documents
+            db.query(Document).filter(Document.source == source).delete(synchronize_session=False)
+
+        db.commit()
+
+        # Delete vectors from Qdrant
+        qdrant_deleted = 0
+        if embedding_ids:
+            try:
+                from app.services.embeddings import qdrant, COLLECTION
+                from qdrant_client.models import PointIdsList
+                qdrant.delete(
+                    collection_name=COLLECTION,
+                    points_selector=PointIdsList(points=embedding_ids),
+                )
+                qdrant_deleted = len(embedding_ids)
+            except Exception as e:
+                logger.warning(f"Qdrant deletion partial/failed: {e}")
+
+        logger.info(f"Cleared source={source}: {len(doc_ids)} docs, {len(embedding_ids)} vectors")
+        return {
+            "status": "ok",
+            "source": source,
+            "docs_deleted": len(doc_ids),
+            "vectors_deleted": qdrant_deleted,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Clear source failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
