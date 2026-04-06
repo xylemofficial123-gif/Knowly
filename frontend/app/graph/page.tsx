@@ -154,26 +154,6 @@ export default function GraphPage() {
               </div>
             </section>
 
-            {/* People */}
-            {data.people.length > 0 && (
-              <section className="bg-white rounded-2xl border border-gray-100 p-6">
-                <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-5">People in knowledge base</h2>
-                <div className="flex flex-wrap gap-3">
-                  {data.people.map((p) => (
-                    <div key={p.email} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-100">
-                      <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center text-white text-[10px] font-black shrink-0">
-                        {p.email[0].toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="text-[12px] font-bold text-foreground">{p.email.split("@")[0]}</p>
-                        <p className="text-[10px] text-gray-400">{p.doc_count} docs</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
             {/* Recent ingestions */}
             <section>
               <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest mb-4">Recently ingested</h2>
