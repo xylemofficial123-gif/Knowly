@@ -31,9 +31,9 @@ export default function DocsPage() {
         minHeight: "100vh",
         display: "flex",
         flexDirection: "column",
-        background: "#fdfdff",
+        background: "#f8fdf9",
         fontFamily: "Inter, -apple-system, sans-serif",
-        color: "#0a0a0f",
+        color: "#052e16",
       }}
     >
       <PublicNav />
@@ -50,11 +50,11 @@ export default function DocsPage() {
             height: "calc(100vh - 60px)",
             overflowY: "auto",
             padding: "32px 20px",
-            borderRight: "1px solid rgba(90,78,251,.1)",
-            background: "rgba(248,248,255,.6)",
+            borderRight: "1px solid rgba(134,239,172,.4)",
+            background: "rgba(240,253,244,.6)",
           }}
         >
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", color: "#94a3b8", marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "2px", textTransform: "uppercase", color: "#6bad7e", marginBottom: 14 }}>
             Documentation
           </div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -63,17 +63,17 @@ export default function DocsPage() {
                 key={s.id}
                 onClick={() => scrollTo(s.id)}
                 style={{
-                  background: active === s.id ? "rgba(240,239,255,.8)" : "transparent",
+                  background: active === s.id ? "rgba(220,252,231,.8)" : "transparent",
                   border: "none",
                   borderRadius: 8,
                   padding: "7px 12px",
                   fontSize: 13,
                   fontWeight: active === s.id ? 600 : 400,
-                  color: active === s.id ? "#0a0a0f" : "#64748b",
+                  color: active === s.id ? "#14532d" : "#4d7c5a",
                   textAlign: "left",
                   cursor: "pointer",
                   transition: "all .15s",
-                  borderLeft: active === s.id ? "2px solid #7c72ff" : "2px solid transparent",
+                  borderLeft: active === s.id ? "2px solid #22c55e" : "2px solid transparent",
                   width: "100%",
                 }}
               >
@@ -86,17 +86,17 @@ export default function DocsPage() {
             style={{
               marginTop: 32,
               padding: "14px 14px",
-              background: "rgba(240,239,255,.6)",
-              border: "1px solid rgba(90,78,251,.1)",
+              background: "rgba(220,252,231,.6)",
+              border: "1px solid rgba(134,239,172,.5)",
               borderRadius: 10,
               fontSize: 12,
-              color: "#64748b",
+              color: "#3d6b50",
               lineHeight: 1.6,
             }}
           >
-            <strong style={{ color: "#0a0a0f", display: "block", marginBottom: 4 }}>Need help?</strong>
+            <strong style={{ color: "#14532d", display: "block", marginBottom: 4 }}>Need help?</strong>
             Ask Xylem directly — it knows its own docs.
-            <Link href="/sign-in" style={{ display: "block", marginTop: 8, color: "#5a4efb", fontWeight: 600, textDecoration: "none", fontSize: 12 }}>
+            <Link href="/sign-in" style={{ display: "block", marginTop: 8, color: "#16a34a", fontWeight: 600, textDecoration: "none", fontSize: 12 }}>
               Sign in to ask →
             </Link>
           </div>
@@ -189,7 +189,7 @@ Has anything changed about our hiring freeze decision?`}</CodeBlock>
               Sources sync on a Celery beat schedule. Google Drive and Meet sync every 6 hours; Slack syncs every 2 hours; ClickUp syncs every 4 hours. Manual re-ingestion can be triggered from the <strong>Ingest</strong> tab.
             </p>
             <Callout type="info">
-              Only content you personally have access to is indexed under your account. An admin&apos;s index is broader than a member&apos;s — see <button onClick={() => scrollTo("access")} style={{ background: "none", border: "none", color: "#5a4efb", fontWeight: 600, cursor: "pointer", padding: 0, fontSize: "inherit" }}>Access control</button> for details.
+              Only content you personally have access to is indexed under your account. An admin&apos;s index is broader than a member&apos;s — see <button onClick={() => scrollTo("access")} style={{ background: "none", border: "none", color: "#16a34a", fontWeight: 600, cursor: "pointer", padding: 0, fontSize: "inherit" }}>Access control</button> for details.
             </Callout>
           </DocSection>
 
@@ -348,9 +348,9 @@ Has anything changed about our hiring freeze decision?`}</CodeBlock>
           textAlign: "center",
           padding: "16px 20px",
           fontSize: 11,
-          color: "#cbd5e1",
-          borderTop: "1px solid rgba(90,78,251,.08)",
-          background: "rgba(240,239,255,.3)",
+          color: "#86bfa0",
+          borderTop: "1px solid rgba(134,239,172,.3)",
+          background: "rgba(220,252,231,.3)",
         }}
       >
         Xylem by Seedling Labs — AI knowledge intelligence for growing teams
@@ -372,10 +372,10 @@ function DocSection({ id, title, children }: { id: string; title: string; childr
           fontSize: 26,
           fontWeight: 800,
           letterSpacing: -0.8,
-          color: "#0a0a0f",
+          color: "#052e16",
           marginBottom: 18,
           paddingBottom: 12,
-          borderBottom: "1px solid rgba(90,78,251,.1)",
+          borderBottom: "1px solid rgba(134,239,172,.4)",
         }}
       >
         {title}
@@ -387,7 +387,7 @@ function DocSection({ id, title, children }: { id: string; title: string; childr
           gap: 14,
           fontSize: 14.5,
           lineHeight: 1.75,
-          color: "#334155",
+          color: "#1a4731",
         }}
       >
         {children}
@@ -398,7 +398,7 @@ function DocSection({ id, title, children }: { id: string; title: string; childr
 
 function Callout({ children, type = "note" }: { children: React.ReactNode; type?: "note" | "info" | "warning" }) {
   const styles = {
-    note:    { bg: "rgba(240,239,255,.5)", border: "#a5b4fc", icon: "🌱" },
+    note:    { bg: "rgba(220,252,231,.5)", border: "#86efac", icon: "🌱" },
     info:    { bg: "rgba(219,234,254,.4)", border: "#93c5fd", icon: "ℹ️"  },
     warning: { bg: "rgba(254,243,199,.5)", border: "#fcd34d", icon: "⚠️" },
   }[type];
@@ -414,7 +414,7 @@ function Callout({ children, type = "note" }: { children: React.ReactNode; type?
         gap: 10,
         alignItems: "flex-start",
         fontSize: 13.5,
-        color: "#334155",
+        color: "#1a4731",
       }}
     >
       <span style={{ flexShrink: 0, marginTop: 1 }}>{styles.icon}</span>
@@ -427,8 +427,8 @@ function CodeBlock({ children }: { children: string }) {
   return (
     <pre
       style={{
-        background: "#0a0a0f",
-        color: "#a5b4fc",
+        background: "#052e16",
+        color: "#86efac",
         borderRadius: 10,
         padding: "16px 18px",
         fontSize: 13,
@@ -461,9 +461,9 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
                 style={{
                   textAlign: "left",
                   padding: "8px 14px",
-                  background: "rgba(240,239,255,.5)",
-                  borderBottom: "1px solid rgba(90,78,251,.1)",
-                  color: "#0a0a0f",
+                  background: "rgba(220,252,231,.5)",
+                  borderBottom: "1px solid rgba(134,239,172,.5)",
+                  color: "#14532d",
                   fontWeight: 700,
                   fontSize: 11,
                   letterSpacing: "0.8px",
@@ -477,14 +477,14 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} style={{ borderBottom: "1px solid rgba(90,78,251,.08)" }}>
+            <tr key={i} style={{ borderBottom: "1px solid rgba(134,239,172,.2)" }}>
               {row.map((cell, j) => (
                 <td
                   key={j}
                   style={{
                     padding: "10px 14px",
-                    color: "#334155",
-                    background: i % 2 === 0 ? "transparent" : "rgba(240,239,255,.3)",
+                    color: "#1a4731",
+                    background: i % 2 === 0 ? "transparent" : "rgba(240,253,244,.4)",
                     verticalAlign: "top",
                   }}
                   dangerouslySetInnerHTML={{ __html: cell }}
@@ -501,8 +501,8 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
 function FAQ({ q, children }: { q: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 20 }}>
-      <h4 style={{ fontSize: 15, fontWeight: 700, color: "#0a0a0f", marginBottom: 6 }}>{q}</h4>
-      <div style={{ fontSize: 14, color: "#64748b", lineHeight: 1.7 }}>{children}</div>
+      <h4 style={{ fontSize: 15, fontWeight: 700, color: "#052e16", marginBottom: 6 }}>{q}</h4>
+      <div style={{ fontSize: 14, color: "#3d6b50", lineHeight: 1.7 }}>{children}</div>
     </div>
   );
 }

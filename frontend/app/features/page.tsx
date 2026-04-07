@@ -68,12 +68,12 @@ export default function FeaturesPage() {
         display: "flex",
         flexDirection: "column",
         background: `
-          radial-gradient(ellipse 80% 50% at 50% -5%, rgba(90,78,251,.06) 0%, transparent 50%),
-          radial-gradient(ellipse 50% 40% at 10% 85%, rgba(124,114,255,.04) 0%, transparent 50%),
-          #fdfdff
+          radial-gradient(ellipse 80% 50% at 50% -5%, #bbf7d0 0%, transparent 50%),
+          radial-gradient(ellipse 50% 40% at 10% 85%, #d1fae5 0%, transparent 50%),
+          #f0fdf4
         `,
         fontFamily: "Inter, -apple-system, sans-serif",
-        color: "#0a0a0f",
+        color: "#052e16",
       }}
     >
       {/* Nav */}
@@ -93,7 +93,7 @@ export default function FeaturesPage() {
             display: "inline-flex",
             alignItems: "center",
             gap: 7,
-            background: "#0a0a0f",
+            background: "#14532d",
             borderRadius: 20,
             padding: "5px 14px",
             marginBottom: 24,
@@ -101,7 +101,7 @@ export default function FeaturesPage() {
             fontWeight: 700,
             letterSpacing: "2.5px",
             textTransform: "uppercase" as const,
-            color: "#818cf8",
+            color: "#4ade80",
           }}
         >
           <span
@@ -109,7 +109,7 @@ export default function FeaturesPage() {
               width: 5,
               height: 5,
               borderRadius: "50%",
-              background: "#818cf8",
+              background: "#4ade80",
               display: "inline-block",
             }}
           />
@@ -123,13 +123,13 @@ export default function FeaturesPage() {
             letterSpacing: -2,
             lineHeight: 1.05,
             marginBottom: 20,
-            color: "#0a0a0f",
+            color: "#052e16",
           }}
         >
           Stop losing knowledge.{" "}
           <span
             style={{
-              backgroundImage: "linear-gradient(90deg, #a5b4fc, #7c72ff)",
+              backgroundImage: "linear-gradient(90deg, #86efac, #22c55e)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
@@ -139,7 +139,7 @@ export default function FeaturesPage() {
           </span>
         </h1>
 
-        <p style={{ fontSize: 17, color: "#64748b", lineHeight: 1.75, maxWidth: 520, margin: "0 auto 36px" }}>
+        <p style={{ fontSize: 17, color: "#3d6b50", lineHeight: 1.75, maxWidth: 520, margin: "0 auto 36px" }}>
           Xylem is an AI-powered knowledge layer that continuously indexes everything
           your company produces and makes it instantly queryable — with full citations.
         </p>
@@ -152,13 +152,13 @@ export default function FeaturesPage() {
             gap: 8,
             height: 50,
             padding: "0 28px",
-            background: "#5a4efb",
+            background: "#16a34a",
             color: "#fff",
             borderRadius: 10,
             fontSize: 15,
             fontWeight: 600,
             textDecoration: "none",
-            boxShadow: "0 4px 16px rgba(90,78,251,.25)",
+            boxShadow: "0 4px 16px rgba(22,163,74,.3)",
             transition: "all .2s",
           }}
         >
@@ -180,7 +180,7 @@ export default function FeaturesPage() {
               key={f.title}
               style={{
                 background: "rgba(255,255,255,.7)",
-                border: "1px solid rgba(90,78,251,.1)",
+                border: "1px solid rgba(134,239,172,.5)",
                 borderRadius: 16,
                 padding: "28px 28px 24px",
                 backdropFilter: "blur(8px)",
@@ -192,13 +192,13 @@ export default function FeaturesPage() {
                   style={{
                     width: 44,
                     height: 44,
-                    background: "linear-gradient(145deg, rgba(90,78,251,.03), rgba(90,78,251,.06))",
+                    background: "linear-gradient(145deg, #dcfce7, #bbf7d0)",
                     borderRadius: 12,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: 22,
-                    border: "1px solid rgba(90,78,251,.15)",
+                    border: "1px solid rgba(134,239,172,.6)",
                   }}
                 >
                   {f.icon}
@@ -209,9 +209,9 @@ export default function FeaturesPage() {
                     fontWeight: 700,
                     letterSpacing: "1.5px",
                     textTransform: "uppercase" as const,
-                    color: "#5a4efb",
-                    background: "rgba(90,78,251,.03)",
-                    border: "1px solid rgba(90,78,251,.06)",
+                    color: "#16a34a",
+                    background: "#dcfce7",
+                    border: "1px solid #bbf7d0",
                     borderRadius: 20,
                     padding: "3px 9px",
                   }}
@@ -223,14 +223,14 @@ export default function FeaturesPage() {
                 style={{
                   fontSize: 16,
                   fontWeight: 700,
-                  color: "#0a0a0f",
+                  color: "#052e16",
                   marginBottom: 8,
                   letterSpacing: -0.3,
                 }}
               >
                 {f.title}
               </h3>
-              <p style={{ fontSize: 13.5, color: "#64748b", lineHeight: 1.65 }}>{f.desc}</p>
+              <p style={{ fontSize: 13.5, color: "#3d6b50", lineHeight: 1.65 }}>{f.desc}</p>
             </div>
           ))}
         </div>
@@ -239,9 +239,9 @@ export default function FeaturesPage() {
       {/* ── Integrations ─────────────────────────────────────────────────── */}
       <section
         style={{
-          background: "rgba(240,239,255,.4)",
-          borderTop: "1px solid rgba(90,78,251,.1)",
-          borderBottom: "1px solid rgba(90,78,251,.1)",
+          background: "rgba(220,252,231,.4)",
+          borderTop: "1px solid rgba(134,239,172,.4)",
+          borderBottom: "1px solid rgba(134,239,172,.4)",
           padding: "56px 40px",
           textAlign: "center",
         }}
@@ -252,7 +252,7 @@ export default function FeaturesPage() {
             fontWeight: 700,
             letterSpacing: "2px",
             textTransform: "uppercase" as const,
-            color: "#94a3b8",
+            color: "#6bad7e",
             marginBottom: 28,
           }}
         >
@@ -274,12 +274,12 @@ export default function FeaturesPage() {
                 alignItems: "center",
                 gap: 10,
                 background: "rgba(255,255,255,.75)",
-                border: "1px solid rgba(90,78,251,.1)",
+                border: "1px solid rgba(134,239,172,.5)",
                 borderRadius: 12,
                 padding: "10px 18px",
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#0a0a0f",
+                color: "#14532d",
               }}
             >
               <span style={{ fontSize: 20 }}>{s.emoji}</span>
@@ -301,13 +301,13 @@ export default function FeaturesPage() {
             fontSize: "clamp(28px, 4vw, 44px)",
             fontWeight: 800,
             letterSpacing: -1.5,
-            color: "#0a0a0f",
+            color: "#052e16",
             marginBottom: 14,
           }}
         >
           Ready to give your team a memory?
         </h2>
-        <p style={{ fontSize: 16, color: "#64748b", marginBottom: 32, maxWidth: 400, margin: "0 auto 32px" }}>
+        <p style={{ fontSize: 16, color: "#3d6b50", marginBottom: 32, maxWidth: 400, margin: "0 auto 32px" }}>
           Sign in with your Google Workspace account and Xylem starts indexing immediately.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
@@ -318,13 +318,13 @@ export default function FeaturesPage() {
               padding: "0 28px",
               display: "inline-flex",
               alignItems: "center",
-              background: "#5a4efb",
+              background: "#16a34a",
               color: "#fff",
               borderRadius: 10,
               fontSize: 15,
               fontWeight: 600,
               textDecoration: "none",
-              boxShadow: "0 4px 16px rgba(90,78,251,.25)",
+              boxShadow: "0 4px 16px rgba(22,163,74,.3)",
             }}
           >
             Sign in with Google →
@@ -337,8 +337,8 @@ export default function FeaturesPage() {
               display: "inline-flex",
               alignItems: "center",
               background: "rgba(255,255,255,.6)",
-              color: "#4a3eeb",
-              border: "1px solid rgba(90,78,251,.15)",
+              color: "#166534",
+              border: "1px solid rgba(134,239,172,.7)",
               borderRadius: 10,
               fontSize: 15,
               fontWeight: 600,
@@ -357,9 +357,9 @@ export default function FeaturesPage() {
           textAlign: "center",
           padding: "16px 20px",
           fontSize: 11,
-          color: "#cbd5e1",
-          borderTop: "1px solid rgba(90,78,251,.08)",
-          background: "rgba(240,239,255,.3)",
+          color: "#86bfa0",
+          borderTop: "1px solid rgba(134,239,172,.3)",
+          background: "rgba(220,252,231,.3)",
         }}
       >
         Xylem by Seedling Labs — AI knowledge intelligence for growing teams

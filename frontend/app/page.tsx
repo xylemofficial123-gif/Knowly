@@ -163,7 +163,7 @@ export default function Home() {
                   ) : (
                     <div className="space-y-6">
                       <div className="flex items-center gap-3 ml-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse shadow-[0_0_10px_rgba(90,78,251,0.5)]"></span>
+                        <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse shadow-[0_0_10px_rgba(22,163,74,0.5)]"></span>
                         <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest tracking-[0.2em]">Xylem Intelligence</span>
                       </div>
                       <OracleResponse answer={msg.content} citations={msg.result?.citations || []} />

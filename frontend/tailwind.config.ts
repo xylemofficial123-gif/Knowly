@@ -11,15 +11,15 @@ const config: Config = {
         background: "#ffffff",
         foreground: "#0a0a0f",
         accent: {
-          DEFAULT: "#5a4efb", // Bright Navy/Indigo from image
-          light: "#7c72ff",
-          dark: "#4a3eeb",
-          soft: "#f0efff",
+          DEFAULT: "#16a34a", // Leaf green — matches Xylem brand
+          light: "#22c55e",
+          dark: "#15803d",
+          soft: "#f0fdf4",
         },
         sidebar: {
           bg: "#ffffff",
-          hover: "#f8f9fc",
-          active: "#eff2ff",
+          hover: "#f0fdf4",
+          active: "#dcfce7",
           text: "#64748b",
         },
         border: {
