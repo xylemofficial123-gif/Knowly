@@ -25,69 +25,72 @@ export default function SignInPage() {
   const [showAuth, setShowAuth] = useState(false);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
+    <div style={{
+      minHeight: "100vh", display: "flex", flexDirection: "column",
+      background: "#fdfdff",
+      fontFamily: "Inter, -apple-system, sans-serif",
+    }}>
+      {/* Subtle top purple gradient wash — matches the app's feel */}
+      <div style={{
+        position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0,
         background: `
-          radial-gradient(ellipse 90% 60% at 50% -10%, #bbf7d0 0%, transparent 55%),
-          radial-gradient(ellipse 60% 50% at 15% 90%,  #d1fae5 0%, transparent 50%),
-          radial-gradient(ellipse 50% 40% at 88% 75%,  #dcfce7 0%, transparent 50%),
-          #f0fdf4
+          radial-gradient(ellipse 80% 50% at 50% -5%, rgba(90,78,251,.07) 0%, transparent 55%),
+          radial-gradient(ellipse 40% 30% at 90% 80%, rgba(124,114,255,.04) 0%, transparent 50%)
         `,
-        fontFamily: "Inter, -apple-system, sans-serif",
-      }}
-    >
+      }} />
+
       {/* ── Announcement bar ─────────────────────────────────────────────── */}
       <div style={{
-        background: "rgba(187,247,208,.5)",
-        borderBottom: "1px solid rgba(134,239,172,.5)",
+        position: "relative", zIndex: 10,
+        background: "#f0efff",
+        borderBottom: "1px solid #e8e6ff",
         display: "flex", alignItems: "center", justifyContent: "center",
-        height: 40, fontSize: 12, color: "#166534", letterSpacing: "0.4px",
-        backdropFilter: "blur(8px)", gap: 8,
+        height: 40, fontSize: 12, color: "#4a3eeb", letterSpacing: "0.3px", gap: 8,
       }}>
         <span style={{
-          width: 5, height: 5, borderRadius: "50%", background: "#22c55e",
-          display: "inline-block", boxShadow: "0 0 5px rgba(34,197,94,.6)",
-          animation: "blink 2.4s ease-in-out infinite",
+          width: 5, height: 5, borderRadius: "50%", background: "#5a4efb",
+          display: "inline-block", animation: "blink 2.4s ease-in-out infinite",
         }} />
         Now available for{" "}
-        <strong style={{ color: "#14532d", fontWeight: 600, marginLeft: 4 }}>
+        <strong style={{ color: "#0a0a0f", fontWeight: 600, marginLeft: 4 }}>
           Seedling Labs
         </strong>
         &nbsp;— Early access
       </div>
 
       {/* ── Nav ──────────────────────────────────────────────────────────── */}
-      <PublicNav />
+      <div style={{ position: "relative", zIndex: 10 }}>
+        <PublicNav />
+      </div>
 
       {/* ── Main ─────────────────────────────────────────────────────────── */}
       <main style={{
+        position: "relative", zIndex: 10,
         flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-        flexDirection: "column", padding: "48px 24px 64px", textAlign: "center",
+        flexDirection: "column", padding: "64px 24px 72px", textAlign: "center",
       }}>
 
         {/* Eyebrow pill */}
         <div style={{
           display: "inline-flex", alignItems: "center", gap: 7,
-          background: "#14532d", borderRadius: 20, padding: "5px 14px",
-          marginBottom: 24, fontSize: 11, fontWeight: 700,
-          letterSpacing: "2.5px", textTransform: "uppercase", color: "#4ade80",
+          background: "#f0efff", border: "1px solid #e0deff",
+          borderRadius: 20, padding: "5px 14px", marginBottom: 24,
+          fontSize: 11, fontWeight: 700, letterSpacing: "2.5px",
+          textTransform: "uppercase", color: "#5a4efb",
         }}>
-          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#4ade80", display: "inline-block" }} />
+          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#5a4efb", display: "inline-block" }} />
           Company knowledge intelligence
         </div>
 
         {/* Headline */}
         <h1 style={{
-          fontSize: "clamp(36px, 5vw, 60px)", fontWeight: 800,
+          fontSize: "clamp(40px, 5.5vw, 64px)", fontWeight: 800,
           letterSpacing: -2.5, lineHeight: 1.05, marginBottom: 18,
-          color: "#052e16", maxWidth: 640,
+          color: "#0a0a0f", maxWidth: 660,
         }}>
           Your company&apos;s memory,{" "}
           <span style={{
-            backgroundImage: "linear-gradient(90deg, #86efac, #4ade80)",
+            backgroundImage: "linear-gradient(90deg, #5a4efb, #818cf8)",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
             backgroundClip: "text",
@@ -98,64 +101,59 @@ export default function SignInPage() {
 
         {/* Subtext */}
         <p style={{
-          fontSize: 16, color: "#3d6b50", lineHeight: 1.75,
-          maxWidth: 440, marginBottom: 44,
+          fontSize: 16, color: "#64748b", lineHeight: 1.75,
+          maxWidth: 440, marginBottom: 48,
         }}>
           Xylem carries what your company needs — every decision, meeting, and
           discussion — delivering cited answers when you need them.
         </p>
 
         {/* ── CTA area: landing buttons OR Clerk form ───────────────────── */}
-        <div style={{
-          width: "100%", maxWidth: 400,
-          transition: "all .3s ease",
-        }}>
+        <div style={{ width: "100%", maxWidth: 400 }}>
           {!showAuth ? (
-            /* ── State 1: landing buttons (Image 2) ── */
+            /* ── State 1: landing buttons ── */
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <button
                 onClick={() => setShowAuth(true)}
                 style={{
                   height: 52, width: "100%",
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                  background: "#16a34a", color: "#fff",
-                  border: "none", borderRadius: 12,
+                  background: "#5a4efb", color: "#fff",
+                  border: "none", borderRadius: 14,
                   fontSize: 16, fontWeight: 600, cursor: "pointer",
-                  boxShadow: "0 4px 16px rgba(22,163,74,.3)",
+                  boxShadow: "0 4px 16px rgba(90,78,251,.3)",
                   transition: "all .2s",
                 }}
-                onMouseOver={e => (e.currentTarget.style.background = "#15803d")}
-                onMouseOut={e => (e.currentTarget.style.background = "#16a34a")}
+                onMouseOver={e => { e.currentTarget.style.background = "#4a3eeb"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                onMouseOut={e => { e.currentTarget.style.background = "#5a4efb"; e.currentTarget.style.transform = "translateY(0)"; }}
               >
                 {GOOGLE_SVG}
                 Sign in with Google
               </button>
-              <Link
-                href="/features"
-                style={{
-                  height: 52, width: "100%",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  background: "rgba(255,255,255,.6)", color: "#166534",
-                  border: "1px solid rgba(134,239,172,.7)", borderRadius: 12,
-                  fontSize: 16, fontWeight: 600, textDecoration: "none",
-                  backdropFilter: "blur(8px)", transition: "all .2s",
-                }}
-              >
+              <Link href="/features" style={{
+                height: 52, width: "100%",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                background: "#fff", color: "#0a0a0f",
+                border: "1px solid #e2e8f0", borderRadius: 14,
+                fontSize: 16, fontWeight: 600, textDecoration: "none",
+                boxShadow: "0 1px 4px rgba(0,0,0,.04)",
+                transition: "all .2s",
+              }}>
                 See how it works →
               </Link>
             </div>
           ) : (
-            /* ── State 2: Clerk sign-in form (Image 1) ── */
+            /* ── State 2: Clerk form ── */
             <div style={{ animation: "fadeUp .25s ease forwards" }}>
               <SignIn
                 appearance={{
                   variables: {
-                    colorPrimary: "#16a34a",
-                    colorBackground: "rgba(255,255,255,0.9)",
+                    colorPrimary: "#5a4efb",
+                    colorBackground: "#ffffff",
                     colorInputBackground: "#ffffff",
-                    colorInputText: "#052e16",
-                    colorText: "#052e16",
-                    colorTextSecondary: "#4d7c5a",
+                    colorInputText: "#0a0a0f",
+                    colorText: "#0a0a0f",
+                    colorTextSecondary: "#64748b",
                     fontFamily: "Inter, system-ui, sans-serif",
                     fontSize: "14px",
                     borderRadius: "12px",
@@ -165,35 +163,34 @@ export default function SignInPage() {
                     headerTitle: "hidden",
                     headerSubtitle: "hidden",
                     socialButtonsBlockButton:
-                      "border border-green-200 bg-white hover:bg-green-50 text-green-900 font-semibold rounded-xl h-[48px] transition-all duration-200 shadow-sm",
+                      "border border-gray-200 bg-white hover:bg-gray-50 text-gray-800 font-semibold rounded-xl h-[48px] transition-all duration-200 shadow-sm",
                     socialButtonsBlockButtonText: "font-semibold text-[14px]",
-                    dividerLine: "bg-green-100",
-                    dividerText: "text-green-400 text-[11px] font-bold uppercase tracking-[0.15em]",
+                    dividerLine: "bg-gray-100",
+                    dividerText: "text-gray-400 text-[11px] font-bold uppercase tracking-[0.15em]",
                     formFieldLabel:
-                      "text-[11px] font-bold text-green-700 uppercase tracking-wider mb-1.5",
+                      "text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5",
                     formFieldInput:
-                      "bg-white border border-green-200 rounded-xl h-[48px] text-[14px] font-medium placeholder:text-green-300 focus:ring-2 focus:ring-green-400/20 focus:border-green-400 transition-all duration-200",
+                      "bg-white border border-gray-200 rounded-xl h-[48px] text-[14px] font-medium text-gray-900 placeholder:text-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-200",
                     formButtonPrimary:
-                      "bg-[#16a34a] hover:bg-[#15803d] text-white font-bold rounded-xl h-[48px] text-[15px] shadow-md shadow-green-500/20 transition-all duration-200",
+                      "bg-[#5a4efb] hover:bg-[#4a3eeb] text-white font-bold rounded-xl h-[48px] text-[15px] shadow-md shadow-indigo-500/20 transition-all duration-200",
                     footerActionLink:
-                      "text-[#16a34a] font-semibold hover:text-[#15803d] transition-colors",
-                    footerActionText: "text-[13px] text-green-600",
-                    identityPreviewText: "text-[13px] font-medium text-green-800",
-                    identityPreviewEditButton: "text-[#16a34a] font-semibold text-[12px]",
+                      "text-[#5a4efb] font-semibold hover:text-[#4a3eeb] transition-colors",
+                    footerActionText: "text-[13px] text-gray-500",
+                    identityPreviewText: "text-[13px] font-medium text-gray-700",
+                    identityPreviewEditButton: "text-[#5a4efb] font-semibold text-[12px]",
                     alertText: "text-[13px]",
                     formFieldSuccessText: "text-[12px] text-green-600",
                     formFieldErrorText: "text-[12px] text-red-500",
                     rootBox: "w-full",
-                    cardBox: "w-full border border-green-200/60 rounded-2xl bg-white/80 backdrop-blur-sm shadow-lg shadow-green-900/5",
+                    cardBox: "w-full border border-gray-200 rounded-2xl bg-white shadow-lg shadow-gray-100",
                   },
                 }}
               />
-              {/* Back link */}
               <button
                 onClick={() => setShowAuth(false)}
                 style={{
-                  marginTop: 16, background: "none", border: "none",
-                  color: "#6bad7e", fontSize: 13, cursor: "pointer",
+                  marginTop: 14, background: "none", border: "none",
+                  color: "#94a3b8", fontSize: 13, cursor: "pointer",
                   textDecoration: "underline", textUnderlineOffset: 3,
                 }}
               >
@@ -207,18 +204,16 @@ export default function SignInPage() {
         <div style={{
           display: "flex", alignItems: "center", gap: 32,
           marginTop: 64, paddingTop: 36,
-          borderTop: "1px solid rgba(134,239,172,.4)",
+          borderTop: "1px solid #f1f5f9",
         }}>
           {PROOF.map((p, i) => (
             <div key={p.label} style={{ display: "flex", alignItems: "center", gap: 32 }}>
-              {i > 0 && (
-                <div style={{ width: 1, height: 40, background: "rgba(134,239,172,.5)" }} />
-              )}
+              {i > 0 && <div style={{ width: 1, height: 40, background: "#e2e8f0" }} />}
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: -1, color: "#14532d" }}>
+                <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: -1, color: "#0a0a0f" }}>
                   {p.num}
                 </div>
-                <div style={{ fontSize: 12, color: "#6bad7e", marginTop: 3 }}>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 3 }}>
                   {p.label}
                 </div>
               </div>
@@ -229,24 +224,18 @@ export default function SignInPage() {
 
       {/* ── Footer caption ───────────────────────────────────────────────── */}
       <div style={{
+        position: "relative", zIndex: 10,
         textAlign: "center", padding: "16px 20px", fontSize: 11,
-        color: "#86bfa0", letterSpacing: "0.4px",
-        borderTop: "1px solid rgba(134,239,172,.3)",
-        background: "rgba(220,252,231,.3)",
+        color: "#cbd5e1", letterSpacing: "0.3px",
+        borderTop: "1px solid #f1f5f9",
       }}>
         Xylem — named after the vascular tissue that carries nutrients through a plant.
         Here, it carries knowledge through your company.
       </div>
 
       <style>{`
-        @keyframes blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(10px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
     </div>
   );
