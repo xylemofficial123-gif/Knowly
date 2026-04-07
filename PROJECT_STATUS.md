@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-04-03
+> **Last updated**: 2026-04-07 (UI refresh)
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -64,7 +64,7 @@ FastAPI Backend
 | Google Meet | DONE | Per-user OAuth 2.0 (DB connection), auto-discovers Gemini notes, AI summaries with decisions/action items/takeaways |
 | Google Calendar | DONE | Per-user OAuth 2.0 (DB connection), 30 days ahead + 7 behind, IST timestamps, attendees, meet links, 30-min sync |
 | Manual Transcripts | DONE | VTT/SRT upload with speaker detection |
-| Slack | BUILT, NOT CONNECTED | Code exists, needs bot token. Will enable real-time monitoring + Guardian Agent |
+| Slack | DONE | OAuth 2.0 connected, real-time message ingestion, `/oracle` slash command for querying, Guardian alerts as thread replies, ghost doc prompts via DM |
 | ClickUp | DONE | OAuth 2.0 connected (excylem@gmail.com workspace), real-time webhook, member-email ACL |
 | Google (OAuth) | DONE | Per-user OAuth 2.0 at /api/oauth/google/authorize — connects individual accounts for Drive/Meet/Calendar ingestion. Auto-refreshes tokens via refresh_token. |
 | Gmail | SKIPPED | Privacy concern — company email contains personal/sensitive content. Drive + Meet + Calendar + Slack covers 90%+ of company knowledge. May revisit with opt-in label-based filtering. |
@@ -77,7 +77,7 @@ FastAPI Backend
 | Research Agent | DONE | Multi-hop reasoning, LLM-generated search angles, meeting isolation (prevents mixing), topic filtering, cross-source synthesis with citations |
 | Onboarding Agent | DONE | Personalized knowledge packs for new hires — project history, key decisions, team structure |
 | Orchestrator | DONE | Agent selection, session management, multi-turn conversation support |
-| Guardian Agent | DONE (delivery pending Slack token) | Cross-source redundancy prevention — embeds trigger text, searches all sources, ACL filters, LLM-synthesises alert, delivers as Slack thread reply or ClickUp comment, logs to `guardian_alerts` table |
+| Guardian Agent | DONE | Cross-source redundancy prevention + drift detection — embeds trigger text, searches all sources, ACL filters, LLM-synthesises alert, checks for decision contradictions, delivers as Slack thread reply or ClickUp comment, logs to `guardian_alerts` table |
 | Project Manager Agent | NOT STARTED | Action item tracking, follow-up reminders, weekly status reports |
 | Real-Time Meeting Agent | NOT STARTED | Live meeting monitoring, real-time re-litigation alerts |
 
@@ -104,9 +104,10 @@ FastAPI Backend
 | Acronym buster | DONE | Glossary + AI-powered term lookup |
 | Cross-source redundancy prevention | DONE | Guardian Agent: threshold 0.78, dedup by document, ACL-filtered, LLM alert, Slack thread reply + ClickUp comment delivery, `guardian_alerts` audit table, `POST /api/guardian/check` + `GET /api/guardian/alerts` |
 | Entity linking / knowledge graph | NOT STARTED | Auto-link Slack discussion → ClickUp task → Drive doc about same topic. Unified cross-source graph. |
-| Version awareness (draft vs final) | NOT STARTED | Distinguish between draft docs and finalized decisions. Prevent retrieving outdated drafts as truth. |
-| Drift detection | NOT STARTED | Flag when actions (ClickUp tasks, code) contradict recorded decisions. Notify relevant leads. |
-| No-index zones | NOT STARTED | Ability to mark Slack channels or Drive folders as excluded from ingestion (HR, M&A, personal). |
+| Version awareness (draft vs final) | DONE | `doc_status` field on Document model (draft/in_review/finalized/unknown). Auto-detected during Drive ingestion via title/content heuristics. Drafts penalized 0.6x in search, in_review 0.85x. LLM prompts label draft sources explicitly. |
+| Drift detection | DONE | `drift_detector.py` compares new Slack/ClickUp content against active DecisionRecords via cosine similarity (≥0.72) + LLM classification (CONTRADICTS/ALIGNED/UNRELATED). Integrated into Guardian check pipeline. Drift alerts delivered alongside Guardian alerts. Manual check via `POST /api/guardian/drift-check`. |
+| No-index zones | DONE | `ExclusionRule` model (source_type, identifier, name, reason). Admin CRUD API at `/api/admin/exclusion-rules`. In-memory cache refreshed per sync cycle. Enforced during Drive folder scan, Slack message ingestion + backfill, ClickUp space traversal. Frontend No-Index Zones tab for managing rules. |
+| Hallucination guardrails | DONE | All LLM prompts (Oracle, Research, Onboarding) enforce citation-only answers. Explicit "I cannot find a record" fallback when no sources match. Never invents rationale or context. |
 | User feedback on answers | DONE | Thumbs up/down on every Oracle answer. Stored in `answer_feedback` table. Viewable in admin Feedback tab. **Feedback-driven learning**: chunks used in helpful answers get score boost (+0.02), not helpful get penalty (-0.02), clamped to [-0.2, 0.2]. Applied during search re-ranking. |
 | Decision reversal tracking | DONE | `superseded_by`, `superseded_at`, `reversal_reason` fields on DecisionRecord. Auto-detection via semantic similarity + LLM confirmation during extraction/approval. Manual reversal via admin API. Full chain history. Agents surface reversal timeline in answers. |
 | Success metrics dashboard | DONE | Admin Metrics tab: total queries, daily usage chart, avg confidence, avg response time, agent/query type breakdown, feedback helpfulness rate. |
@@ -120,7 +121,7 @@ FastAPI Backend
 | Clickable citations | DONE | `[N]` badges link to source URLs |
 | Agent metadata bar | DONE | Shows agent name, query type, confidence |
 | Collapsible sources | DONE | `<details>` toggle for source list |
-| Admin panel | DONE | 4 tabs: Metrics, Audit Log, Review Queue, Feedback |
+| Admin panel | DONE | 10 tabs: Connections, Metrics, Audit Log, Review Queue, Feedback, Ingestion, Users, Groups, Upload, No-Index Zones |
 
 ### Infrastructure
 
@@ -290,25 +291,13 @@ User action (Slack message / ClickUp task / Drive doc edit)
 
 **Prerequisites**: Entity extraction improvements (currently regex-based), Slack + ClickUp connected
 
-### Priority 8 — Version Awareness (Draft vs Finalized)
+### ~~Priority 8 — Version Awareness (Draft vs Finalized)~~ DONE
 
-**Goal**: Distinguish between draft documents and finalized decisions. Prevent the agent from presenting outdated drafts as truth.
+Implemented: `doc_status` field on Document model + Qdrant payload (`draft`, `in_review`, `finalized`, `unknown`). Auto-detection during Drive ingestion via title/content heuristics (detects "DRAFT", "WIP", "for review", "RFC", etc.). Drafts penalized 0.6x in RAG search scoring, in_review 0.85x. LLM prompts label draft sources and warn users. Applied in both Research Agent and Oracle service.
 
-**How it works**:
-- Tag documents with status: `draft`, `in_review`, `finalized`, `superseded`
-- For Google Drive: detect "DRAFT" in title/content, check sharing settings (restricted = likely draft)
-- For decisions: already have `active`/`superseded` status in DecisionRecord
-- In RAG responses: clearly label draft sources and prioritize finalized content
+### ~~Priority 9 — No-Index Zones~~ DONE
 
-### Priority 9 — No-Index Zones
-
-**Goal**: Allow admins to mark specific Slack channels, Drive folders, or ClickUp spaces as excluded from ingestion.
-
-**What's needed**:
-- Admin UI with a list of connected sources and toggle to exclude
-- `ExclusionRule` model in database (source_type, identifier, reason)
-- Check exclusion rules during sync before ingesting content
-- Examples: HR channel, salary docs folder, M&A discussions
+Implemented: `ExclusionRule` model with unique constraint on (source_type, identifier). Admin CRUD API at `GET/POST/DELETE /api/admin/exclusion-rules`. In-memory cache (`exclusion_service.py`) refreshed at start of each sync cycle. Enforced in: Drive folder tree traversal (skips excluded folders + subfolders), Slack message ingestion + event handler + backfill, ClickUp space traversal. Frontend "No-Index Zones" tab in admin panel for managing rules.
 
 ### Priority 10 — User Feedback on Answers
 
@@ -324,17 +313,9 @@ User action (Slack message / ClickUp task / Drive doc edit)
 
 Implemented: `superseded_by`, `superseded_at`, `reversal_reason` columns on DecisionRecord. Auto-detection during ingestion/approval via semantic similarity (≥0.80) + LLM confirmation. Manual reversal via `POST /api/admin/decisions/{id}/reverse`. Full chain history via `GET /api/admin/decisions/{id}/history`. Research + Onboarding agents surface reversal timeline in answers.
 
-### Priority 12 — Drift Detection
+### ~~Priority 12 — Drift Detection~~ DONE
 
-**Goal**: If the team starts doing something that contradicts a recorded decision, flag the inconsistency.
-
-**How it works**:
-- Monitor new ClickUp tasks, Slack messages, and Drive docs against active decisions
-- Use semantic similarity between new content and decision text
-- If high similarity + contradicting intent detected → alert relevant leads
-- Harder than re-litigation detection (requires understanding intent, not just topic overlap)
-
-**Prerequisites**: Guardian Agent, Slack connected, ClickUp connected
+Implemented: `drift_detector.py` service. Compares new content against all active DecisionRecords via cosine similarity (≥0.72 threshold) + LLM classification (CONTRADICTS/ALIGNED/UNRELATED). Integrated into Guardian Agent pipeline — runs alongside redundancy check on every Slack message and ClickUp task. Drift alerts combined with Guardian alerts and delivered via Slack thread reply / ClickUp comment. Manual check via `POST /api/guardian/drift-check`. Top 5 decision candidates checked per trigger.
 
 ### Priority 13 — Success Metrics Dashboard
 
@@ -446,7 +427,9 @@ knowledge_system/
 │   │   │   ├── ghost_docs.py       # Ghost documentation prompts
 │   │   │   ├── relitigation_detector.py # Re-litigation detection
 │   │   │   ├── acronym_buster.py   # Term/acronym definitions
-│   │   │   └── timeline.py         # Project timeline generation
+│   │   │   ├── timeline.py         # Project timeline generation
+│   │   │   ├── exclusion_service.py # No-index zone enforcement (cached)
+│   │   │   └── drift_detector.py   # Decision contradiction detection
 │   │   │
 │   │   └── workers/
 │   │       ├── celery_app.py  # Celery config + beat schedule (Drive/Meet/Calendar every 30 min)
@@ -473,6 +456,11 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-04-07 | Frontend: New leafy-green auth/landing page (pitch-premium layout), `/features` marketing page, `/docs` documentation page, shared `PublicNav` component; middleware + LayoutWrapper updated for public routes |
+| 2026-04-07 | No-Index Zones: `ExclusionRule` model, admin CRUD API (`/api/admin/exclusion-rules`), `exclusion_service.py` with in-memory cache, enforced in Drive/Slack/ClickUp ingestion pipelines, frontend No-Index Zones tab |
+| 2026-04-07 | Version Awareness: `doc_status` field on Document + Qdrant payload, auto-detection during Drive ingestion (draft/in_review/finalized heuristics), drafts penalized 0.6x in search, LLM prompts label draft sources |
+| 2026-04-07 | Drift Detection: `drift_detector.py` service, cosine similarity ≥0.72 + LLM classification against active decisions, integrated into Guardian pipeline, combined alerts, `POST /api/guardian/drift-check` |
+| 2026-04-07 | Hallucination guardrails: strengthened all LLM prompts (Oracle, Research, Onboarding) with explicit "I cannot find a record" fallback and never-invent rules |
 | 2026-03-24 | Guardian Agent: `app/agents/guardian.py`, `GuardianAlert` model, `process_guardian_check` Celery task, `POST /api/guardian/check` + `GET /api/guardian/alerts`. Wired into Slack `handle_message` and ClickUp webhook. Delivery: Slack thread reply (live when bot token set) and ClickUp comment. |
 | 2026-03-23 | Three-tier RBAC: User/Group/GroupMembership models, ACL overhaul (admin bypass, group:<uuid>, user:<email>), User+Group management APIs + frontend tabs |
 | 2026-03-23 | Scoped document upload: POST /api/ingest/upload with public/group/private scope + PDF extraction |

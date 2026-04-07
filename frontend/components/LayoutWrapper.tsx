@@ -5,7 +5,11 @@ import Sidebar from "./Sidebar";
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAuthPage = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
+  const isAuthPage =
+    pathname.startsWith("/sign-in") ||
+    pathname.startsWith("/sign-up") ||
+    pathname.startsWith("/features") ||
+    pathname.startsWith("/docs");
 
   if (isAuthPage) {
     return <>{children}</>;
