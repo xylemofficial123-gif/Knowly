@@ -7,6 +7,27 @@ logger = logging.getLogger(__name__)
 
 
 def _get_client() -> WebClient:
+    """Return a Slack WebClient. Prefers DB-stored OAuth bot token over env var."""
+    try:
+        from app.core.token_store import get_connection
+        from app.core.database import SessionLocal
+        from app.models import OAuthConnection
+        db = SessionLocal()
+        try:
+            # Try any slack:{email} connection first
+            conn = db.query(OAuthConnection).filter(
+                OAuthConnection.id.like("slack:%")
+            ).first()
+            if not conn:
+                conn = db.query(OAuthConnection).filter(
+                    OAuthConnection.id == "slack"
+                ).first()
+        finally:
+            db.close()
+        if conn and conn.access_token:
+            return WebClient(token=conn.access_token)
+    except Exception as e:
+        logger.debug(f"Could not load Slack token from DB: {e}")
     return WebClient(token=settings.SLACK_BOT_TOKEN)
 
 

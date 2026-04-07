@@ -1,5 +1,5 @@
 """
-OAuth 2.0 endpoints for ClickUp and Google integration.
+OAuth 2.0 endpoints for ClickUp, Google, and Slack integration.
 
 ClickUp flow:
   1. Frontend calls GET /api/oauth/clickup/authorize
@@ -312,4 +312,166 @@ def google_disconnect(user_email: str = ""):
         delete_connection(f"google:{user_email}")
     else:
         delete_connection("google")
+    return {"status": "disconnected"}
+
+
+# ── Slack ───────────────────────────────────────────────────────────────────────
+
+SLACK_AUTH_URL  = "https://slack.com/oauth/v2/authorize"
+SLACK_TOKEN_URL = "https://slack.com/api/oauth.v2.access"
+SLACK_BOT_SCOPES = [
+    "channels:history",
+    "channels:read",
+    "groups:history",
+    "groups:read",
+    "users:read",
+    "users:read.email",
+    "chat:write",
+    "commands",
+]
+
+
+@router.get("/slack/authorize")
+def slack_authorize(user_email: str = ""):
+    """Return the Slack OAuth URL for the frontend to redirect to.
+
+    user_email: the Xylem account email of the user initiating the connection.
+    The callback will save the bot token as 'slack:{user_email}'.
+    """
+    if not settings.SLACK_CLIENT_ID:
+        raise HTTPException(status_code=501, detail="SLACK_CLIENT_ID not configured")
+    if not user_email:
+        raise HTTPException(status_code=400, detail="user_email is required")
+
+    state = secrets.token_urlsafe(32)
+    try:
+        _redis().setex(f"oauth:state:{state}", 600, f"slack:{user_email}")
+    except Exception as e:
+        logger.warning(f"Redis unavailable for Slack OAuth state — proceeding without CSRF: {e}")
+
+    import urllib.parse
+    redirect_uri = f"{settings.BACKEND_URL}/api/oauth/slack/callback"
+    params = {
+        "client_id": settings.SLACK_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "scope": ",".join(SLACK_BOT_SCOPES),
+        "state": state,
+    }
+    url = f"{SLACK_AUTH_URL}?{urllib.parse.urlencode(params)}"
+    return {"url": url}
+
+
+@router.get("/slack/callback")
+def slack_callback(code: str = "", state: str = "", error: str = ""):
+    """Slack redirects here after user approves. Exchanges code for bot token."""
+    if error:
+        logger.warning(f"Slack OAuth error: {error}")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?slack=error")
+
+    # Retrieve user_email from state
+    user_email = ""
+    try:
+        stored = _redis().get(f"oauth:state:{state}")
+        if stored is None:
+            logger.warning("Slack OAuth state token not found in Redis — may have expired")
+        else:
+            _redis().delete(f"oauth:state:{state}")
+            if stored.startswith("slack:"):
+                user_email = stored[len("slack:"):]
+    except Exception:
+        pass
+
+    redirect_uri = f"{settings.BACKEND_URL}/api/oauth/slack/callback"
+
+    # Exchange code for tokens
+    try:
+        resp = http.post(
+            SLACK_TOKEN_URL,
+            data={
+                "code":          code,
+                "client_id":     settings.SLACK_CLIENT_ID,
+                "client_secret": settings.SLACK_CLIENT_SECRET,
+                "redirect_uri":  redirect_uri,
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        token_data = resp.json()
+    except Exception as e:
+        logger.error(f"Slack token exchange failed: {e}")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?slack=error")
+
+    if not token_data.get("ok"):
+        logger.error(f"Slack OAuth error response: {token_data}")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?slack=error")
+
+    bot_token      = token_data.get("access_token", "")
+    bot_user_id    = token_data.get("bot_user_id", "")
+    workspace_name = token_data.get("team", {}).get("name", "")
+    workspace_id   = token_data.get("team", {}).get("id", "")
+    scope          = token_data.get("scope", "")
+    authed_user    = token_data.get("authed_user", {})
+    connected_email = authed_user.get("id", "")  # Slack user ID (email not returned here)
+
+    if not bot_token:
+        logger.error("No bot access_token in Slack response")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?slack=error")
+
+    # Key = "slack:{xylem_user_email}" — tracks who connected the workspace
+    connection_key = f"slack:{user_email}" if user_email else "slack"
+
+    save_connection(
+        connection_key,
+        bot_token,
+        token_type="bot",
+        scope=scope,
+        bot_user_id=bot_user_id,
+        workspace_name=workspace_name,
+        workspace_id=workspace_id,
+        connected_by=user_email,
+    )
+
+    logger.info(f"Slack OAuth connected — workspace={workspace_name}, connected_by={user_email}")
+    return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?slack=connected")
+
+
+@router.get("/slack/status")
+def slack_status(user_email: str = ""):
+    """Return the Slack connection status."""
+    conn = None
+    if user_email:
+        conn = get_connection(f"slack:{user_email}")
+    if not conn:
+        # Check for any slack connection (workspace is shared)
+        from app.core.database import SessionLocal
+        from app.models import OAuthConnection
+        db = SessionLocal()
+        try:
+            conn = db.query(OAuthConnection).filter(
+                OAuthConnection.id.like("slack:%")
+            ).first()
+            if not conn:
+                conn = db.query(OAuthConnection).filter(
+                    OAuthConnection.id == "slack"
+                ).first()
+        finally:
+            db.close()
+    if not conn:
+        return {"connected": False}
+    return {
+        "connected":       True,
+        "workspace_name":  conn.workspace_name,
+        "workspace_id":    conn.workspace_id,
+        "connected_by":    conn.connected_by,
+        "connected_at":    conn.connected_at.isoformat() if conn.connected_at else None,
+    }
+
+
+@router.delete("/slack/disconnect")
+def slack_disconnect(user_email: str = ""):
+    """Remove the Slack OAuth connection."""
+    if user_email:
+        delete_connection(f"slack:{user_email}")
+    else:
+        delete_connection("slack")
     return {"status": "disconnected"}

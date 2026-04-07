@@ -104,8 +104,16 @@ export default function AdminPage() {
     connected_email?: string;
     connected_at?: string;
   }
+  interface SlackStatus {
+    connected: boolean;
+    workspace_name?: string;
+    workspace_id?: string;
+    connected_by?: string;
+    connected_at?: string;
+  }
   const [clickupStatus, setClickupStatus] = useState<ClickUpStatus | null>(null);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [slackStatus, setSlackStatus] = useState<SlackStatus | null>(null);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
@@ -441,6 +449,40 @@ export default function AdminPage() {
     }
   };
 
+  const fetchSlackStatus = async () => {
+    try {
+      const url = currentUserEmail
+        ? `${API_URL}/api/oauth/slack/status?user_email=${encodeURIComponent(currentUserEmail)}`
+        : `${API_URL}/api/oauth/slack/status`;
+      const res = await fetch(url);
+      const data = await res.json();
+      setSlackStatus(data);
+    } catch (e) {
+      console.error("Failed to fetch Slack status:", e);
+    }
+  };
+
+  const connectSlack = async () => {
+    if (!currentUserEmail) return;
+    try {
+      const res = await fetch(`${API_URL}/api/oauth/slack/authorize?user_email=${encodeURIComponent(currentUserEmail)}`);
+      const data = await res.json();
+      window.location.href = data.url;
+    } catch (e) {
+      console.error("Failed to get Slack auth URL:", e);
+    }
+  };
+
+  const disconnectSlack = async () => {
+    if (!currentUserEmail) return;
+    try {
+      await fetch(`${API_URL}/api/oauth/slack/disconnect?user_email=${encodeURIComponent(currentUserEmail)}`, { method: "DELETE" });
+      fetchSlackStatus();
+    } catch (e) {
+      console.error("Failed to disconnect Slack:", e);
+    }
+  };
+
   useEffect(() => {
     if (tab === "audit") fetchAuditLog();
     else if (tab === "review") fetchReviewQueue();
@@ -454,7 +496,7 @@ export default function AdminPage() {
     else if (tab === "upload") fetchGroups();
     else if (tab === "connections") {
       setConnectionsLoading(true);
-      Promise.all([fetchClickupStatus(), fetchGoogleStatus()]).finally(() =>
+      Promise.all([fetchClickupStatus(), fetchGoogleStatus(), fetchSlackStatus()]).finally(() =>
         setConnectionsLoading(false)
       );
     }
@@ -475,6 +517,13 @@ export default function AdminPage() {
       fetchGoogleStatus();
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("google") === "error") {
+      setTab("connections");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("slack") === "connected") {
+      setTab("connections");
+      fetchSlackStatus();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("slack") === "error") {
       setTab("connections");
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -726,8 +775,8 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* Slack Card — managed by teammate */}
-          <div className="bg-[#1a1a2e] border border-gray-700 rounded-xl p-6 opacity-60">
+          {/* Slack Card */}
+          <div className={`bg-[#1a1a2e] border rounded-xl p-6 ${slackStatus?.connected ? "border-[#4A154B]" : "border-gray-700"}`}>
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-[#4A154B] rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
@@ -736,8 +785,48 @@ export default function AdminPage() {
                   <p className="text-xs text-gray-400">Real-time message ingestion, slash commands, Guardian thread alerts</p>
                 </div>
               </div>
-              <span className="text-xs text-gray-500 bg-gray-800 px-2.5 py-1 rounded-full">Coming soon</span>
+              {slackStatus?.connected ? (
+                <span className="text-xs text-green-400 bg-green-900/30 px-2.5 py-1 rounded-full">Connected</span>
+              ) : (
+                <span className="text-xs text-gray-500 bg-gray-800 px-2.5 py-1 rounded-full">Not connected</span>
+              )}
             </div>
+            {slackStatus?.connected ? (
+              <div className="mt-4 space-y-2">
+                <p className="text-sm text-gray-300">
+                  Workspace: <span className="text-white font-medium">{slackStatus.workspace_name || slackStatus.workspace_id}</span>
+                </p>
+                {slackStatus.connected_by && (
+                  <p className="text-xs text-gray-400">
+                    Connected by: {slackStatus.connected_by}
+                  </p>
+                )}
+                {slackStatus.connected_at && (
+                  <p className="text-xs text-gray-500">
+                    Since {new Date(slackStatus.connected_at).toLocaleDateString()}
+                  </p>
+                )}
+                <button
+                  onClick={disconnectSlack}
+                  className="mt-2 text-xs text-red-400 hover:text-red-300 underline"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <div className="mt-4">
+                <p className="text-xs text-gray-400 mb-3">
+                  Connect your Slack workspace to enable message ingestion and real-time alerts.
+                </p>
+                <button
+                  onClick={connectSlack}
+                  disabled={!currentUserEmail}
+                  className="px-4 py-2 bg-[#4A154B] hover:bg-[#611f69] text-white text-sm rounded-lg transition disabled:opacity-50"
+                >
+                  Connect Slack
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
