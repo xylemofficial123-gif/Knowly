@@ -437,7 +437,10 @@ def slack_callback(code: str = "", state: str = "", error: str = ""):
 
 @router.get("/slack/status")
 def slack_status(user_email: str = ""):
-    """Return the Slack connection status."""
+    """Return the Slack connection status.
+
+    Checks DB-stored OAuth connections first, then falls back to SLACK_BOT_TOKEN env var.
+    """
     conn = None
     if user_email:
         conn = get_connection(f"slack:{user_email}")
@@ -456,15 +459,39 @@ def slack_status(user_email: str = ""):
                 ).first()
         finally:
             db.close()
-    if not conn:
-        return {"connected": False}
-    return {
-        "connected":       True,
-        "workspace_name":  conn.workspace_name,
-        "workspace_id":    conn.workspace_id,
-        "connected_by":    conn.connected_by,
-        "connected_at":    conn.connected_at.isoformat() if conn.connected_at else None,
-    }
+
+    if conn:
+        return {
+            "connected":       True,
+            "workspace_name":  conn.workspace_name,
+            "workspace_id":    conn.workspace_id,
+            "connected_by":    conn.connected_by,
+            "connected_at":    conn.connected_at.isoformat() if conn.connected_at else None,
+        }
+
+    # Fallback: check SLACK_BOT_TOKEN env var — call auth.test to get workspace info
+    if settings.SLACK_BOT_TOKEN:
+        try:
+            resp = http.post(
+                "https://slack.com/api/auth.test",
+                headers={"Authorization": f"Bearer {settings.SLACK_BOT_TOKEN}"},
+                timeout=5,
+            )
+            data = resp.json()
+            if data.get("ok"):
+                return {
+                    "connected":      True,
+                    "workspace_name": data.get("team", ""),
+                    "workspace_id":   data.get("team_id", ""),
+                    "connected_by":   data.get("user", ""),
+                    "connected_at":   None,
+                }
+        except Exception as e:
+            logger.warning(f"Slack auth.test failed: {e}")
+        # Token is set even if auth.test failed — report as connected
+        return {"connected": True, "workspace_name": "", "workspace_id": "", "connected_by": "", "connected_at": None}
+
+    return {"connected": False}
 
 
 @router.delete("/slack/disconnect")

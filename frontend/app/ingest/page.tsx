@@ -792,26 +792,31 @@ export default function AdminPage() {
               )}
             </div>
             {slackStatus?.connected ? (
-              <div className="mt-4 space-y-2">
-                <p className="text-sm text-gray-300">
-                  Workspace: <span className="text-white font-medium">{slackStatus.workspace_name || slackStatus.workspace_id}</span>
-                </p>
-                {slackStatus.connected_by && (
-                  <p className="text-xs text-gray-400">
-                    Connected by: {slackStatus.connected_by}
-                  </p>
-                )}
+              <div className="mt-4 pt-4 border-t border-gray-700 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-gray-400 text-xs">Workspace</p>
+                  <p className="text-white font-medium">{slackStatus.workspace_name || slackStatus.workspace_id || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 text-xs">Bot user</p>
+                  <p className="text-white font-medium">{slackStatus.connected_by || "—"}</p>
+                </div>
                 {slackStatus.connected_at && (
-                  <p className="text-xs text-gray-500">
-                    Since {new Date(slackStatus.connected_at).toLocaleDateString()}
-                  </p>
+                  <div>
+                    <p className="text-gray-400 text-xs">Connected</p>
+                    <p className="text-white font-medium">
+                      {new Date(slackStatus.connected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                    </p>
+                  </div>
                 )}
-                <button
-                  onClick={disconnectSlack}
-                  className="mt-2 text-xs text-red-400 hover:text-red-300 underline"
-                >
-                  Disconnect
-                </button>
+                <div className="col-span-2 mt-1">
+                  <button
+                    onClick={disconnectSlack}
+                    className="px-4 py-2 text-sm bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition"
+                  >
+                    Disconnect
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="mt-4">
