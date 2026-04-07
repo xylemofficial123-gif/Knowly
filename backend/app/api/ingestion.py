@@ -47,9 +47,17 @@ def trigger_ingestion(req: TriggerRequest):
                 results["meet"] = {"status": "skipped", "detail": "Source disabled in settings"}
             else:
                 from app.services.meet_ingestion import ingest_drive_transcripts
+                from app.models import OAuthConnection
+                from app.core.database import SessionLocal
                 try:
-                    count = ingest_drive_transcripts()
-                    results["meet"] = {"status": "ok", "transcripts_ingested": count}
+                    db = SessionLocal()
+                    try:
+                        conns = db.query(OAuthConnection).filter(OAuthConnection.id.like("google:%")).all()
+                        user_emails = [c.id[len("google:"):] for c in conns] or [None]
+                    finally:
+                        db.close()
+                    total = sum(ingest_drive_transcripts(user_email=ue) for ue in user_emails)
+                    results["meet"] = {"status": "ok", "transcripts_ingested": total}
                 except Exception as e:
                     results["meet"] = {"status": "error", "detail": str(e)}
 
@@ -58,22 +66,22 @@ def trigger_ingestion(req: TriggerRequest):
                 results["drive"] = {"status": "skipped", "detail": "Source disabled in settings"}
             else:
                 from app.services.drive_ingestion import ingest_all_drive
-                from app.models import GlobalSettings
+                from app.models import GlobalSettings, OAuthConnection
                 from app.core.database import SessionLocal
                 try:
-                    folder_ids = req.folder_ids
-                    # If no folder_ids in the request, read from saved GlobalSettings
-                    if not folder_ids:
-                        db = SessionLocal()
-                        try:
+                    db = SessionLocal()
+                    try:
+                        folder_ids = req.folder_ids
+                        if not folder_ids:
                             gs = db.query(GlobalSettings).filter(GlobalSettings.id == "default").first()
                             if gs and gs.google_drive_folder_ids:
                                 folder_ids = gs.google_drive_folder_ids
-                        finally:
-                            db.close()
-
-                    count = ingest_all_drive(folder_ids=folder_ids if folder_ids else None)
-                    results["drive"] = {"status": "ok", "files_ingested": count}
+                        conns = db.query(OAuthConnection).filter(OAuthConnection.id.like("google:%")).all()
+                        user_emails = [c.id[len("google:"):] for c in conns] or [None]
+                    finally:
+                        db.close()
+                    total = sum(ingest_all_drive(folder_ids=folder_ids if folder_ids else None, user_email=ue) for ue in user_emails)
+                    results["drive"] = {"status": "ok", "files_ingested": total}
                 except Exception as e:
                     results["drive"] = {"status": "error", "detail": str(e)}
 
@@ -82,9 +90,17 @@ def trigger_ingestion(req: TriggerRequest):
                 results["calendar"] = {"status": "skipped", "detail": "Source disabled in settings"}
             else:
                 from app.services.calendar_sync import sync_calendar
+                from app.models import OAuthConnection
+                from app.core.database import SessionLocal
                 try:
-                    count = sync_calendar()
-                    results["calendar"] = {"status": "ok", "events_synced": count}
+                    db = SessionLocal()
+                    try:
+                        conns = db.query(OAuthConnection).filter(OAuthConnection.id.like("google:%")).all()
+                        user_emails = [c.id[len("google:"):] for c in conns] or [None]
+                    finally:
+                        db.close()
+                    total = sum(sync_calendar(user_email=ue) for ue in user_emails)
+                    results["calendar"] = {"status": "ok", "events_synced": total}
                 except Exception as e:
                     results["calendar"] = {"status": "error", "detail": str(e)}
 
