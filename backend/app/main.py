@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 slack_handler = None
 
 if settings.SLACK_BOT_TOKEN:
-    from slack_bolt import App as SlackApp
-    from slack_bolt.adapter.fastapi import SlackRequestHandler
+    from slack_bolt.async_app import AsyncApp as SlackApp
+    from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler as SlackRequestHandler
 
     slack_app = SlackApp(
         token=settings.SLACK_BOT_TOKEN,
@@ -34,17 +34,18 @@ if settings.SLACK_BOT_TOKEN:
     )
 
     @slack_app.error
-    def global_error_handler(error, body, logger):
-        import traceback, os
+    async def global_error_handler(error, body, ack, logger):
+        import traceback
         tb = traceback.format_exc()
         logger.exception(f"Slack Bolt error: {error}")
         logger.error(f"Request body: {body}")
-        # Write to file so we can read it even without terminal access
         with open("/tmp/slack_bolt_error.log", "a") as f:
             f.write(f"\n=== ERROR ===\n{error}\n{tb}\nbody={body}\n")
+        # Must ack so Slack doesn't show dispatch_unknown_error
+        await ack(f"❌ Something went wrong: {str(error)[:100]}")
 
     @slack_app.event("message")
-    def handle_message(event, say):
+    async def handle_message(event, say):
         from app.services.settings_service import is_source_enabled
         if not is_source_enabled("slack"):
             return
@@ -65,6 +66,9 @@ if settings.SLACK_BOT_TOKEN:
             return
         if channel_id in settings.no_index_channels:
             return
+        from app.services.exclusion_service import is_excluded
+        if is_excluded("slack", channel_id):
+            return
 
         ingest_slack_message.delay(event, channel_id)
 
@@ -76,15 +80,13 @@ if settings.SLACK_BOT_TOKEN:
 
         process_decision_extraction_for_message.delay(text, source_id, source_url, user)
 
-        # Guardian: check if topic was discussed before across all sources
         if len(text.split()) >= 15:
             from app.workers.tasks import process_guardian_check
-            # Resolve Slack user ID → email for ACL (best-effort)
             user_email = ""
             try:
-                from slack_sdk import WebClient
-                wc = WebClient(token=settings.SLACK_BOT_TOKEN)
-                info = wc.users_info(user=user)
+                from slack_sdk.web.async_client import AsyncWebClient
+                wc = AsyncWebClient(token=settings.SLACK_BOT_TOKEN)
+                info = await wc.users_info(user=user)
                 user_email = info.get("user", {}).get("profile", {}).get("email", "")
             except Exception:
                 pass
@@ -99,11 +101,11 @@ if settings.SLACK_BOT_TOKEN:
             )
 
     @slack_app.command("/timeline")
-    def handle_timeline(ack, command, respond):
-        ack()
+    async def handle_timeline(ack, command, respond):
+        await ack()
         project_name = command.get("text", "").strip()
         if not project_name:
-            respond("Usage: `/timeline [project name]`")
+            await respond("Usage: `/timeline [project name]`")
             return
 
         from app.services.timeline import get_project_timeline
@@ -111,7 +113,7 @@ if settings.SLACK_BOT_TOKEN:
         events = get_project_timeline(project_name, user_email="")
 
         if not events:
-            respond(f"No timeline found for *{project_name}*")
+            await respond(f"No timeline found for *{project_name}*")
             return
 
         blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"Timeline: {project_name}"}}]
@@ -120,63 +122,57 @@ if settings.SLACK_BOT_TOKEN:
             evt_type = evt.get("type", "event")
             title = evt.get("title", "")
             detail = evt.get("detail", "")[:120]
-            blocks.append(
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*{date_str}* — _{evt_type}_\n*{title}*\n{detail}",
-                    },
-                }
-            )
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{date_str}* — _{evt_type}_\n*{title}*\n{detail}"},
+            })
             blocks.append({"type": "divider"})
 
-        respond(blocks=blocks)
+        await respond(blocks=blocks)
 
     @slack_app.command("/define")
-    def handle_define(ack, command, respond):
-        ack()
+    async def handle_define(ack, command, respond):
+        await ack()
         term = command.get("text", "").strip()
         if not term:
-            respond("Usage: `/define [term]`")
+            await respond("Usage: `/define [term]`")
             return
 
         from app.services.acronym_buster import bust_acronym
-
         result = bust_acronym(term)
-        respond(result)
+        await respond(result)
 
     @slack_app.command("/oracle")
-    def handle_oracle(ack, command):
-        # Return HTTP 200 to Slack immediately — handler must not block
-        ack()
+    async def handle_oracle(ack, command):
+        await ack()  # Must respond to Slack within 3 seconds
 
         question = command.get("text", "").strip()
         response_url = command.get("response_url", "")
         user_id = command.get("user_id", "")
 
-        if not question or not response_url:
+        if not question:
+            return
+        if not response_url:
             return
 
-        # All slow work happens in a background thread.
-        # We post directly to response_url (valid 30 min) — never use respond() here
-        # because that would block the handler and delay the HTTP 200.
+        # Run the slow oracle call in a background thread so we don't block the event loop
+        import asyncio
         import threading
-        import requests
+        import requests as req
 
         def _run():
-            import requests as req
-            from app.services.oracle import ask_oracle
-            from slack_sdk import WebClient
-
-            # Immediately post a "thinking" message so the user sees feedback
-            req.post(response_url, json={
-                "text": "🔍 Searching the knowledge base…",
-                "response_type": "ephemeral",
-            }, timeout=5)
+            # Post a "thinking" message immediately
+            try:
+                req.post(response_url, json={
+                    "text": "🔍 Searching the knowledge base…",
+                    "response_type": "ephemeral",
+                }, timeout=5)
+            except Exception:
+                pass
 
             user_email = ""
             try:
+                from slack_sdk import WebClient
                 client = WebClient(token=settings.SLACK_BOT_TOKEN)
                 user_info = client.users_info(user=user_id)
                 user_email = user_info.get("user", {}).get("profile", {}).get("email", "")
@@ -187,6 +183,7 @@ if settings.SLACK_BOT_TOKEN:
                 user_email = "demo@yourcompany.com"
 
             try:
+                from app.services.oracle import ask_oracle
                 result = ask_oracle(question, user_email)
                 answer = result.get("answer", "No answer found.")
                 citations = result.get("citations", [])
@@ -210,7 +207,7 @@ if settings.SLACK_BOT_TOKEN:
                 }, timeout=10)
 
             except Exception as e:
-                logger.error(f"/oracle background error: {e}")
+                logger.error(f"/oracle background error: {e}", exc_info=True)
                 req.post(response_url, json={
                     "text": "❌ Something went wrong fetching the answer. Please try again.",
                     "response_type": "ephemeral",
@@ -219,11 +216,11 @@ if settings.SLACK_BOT_TOKEN:
         threading.Thread(target=_run, daemon=True).start()
 
     @slack_app.command("/history")
-    def handle_history(ack, command, respond):
-        ack()
+    async def handle_history(ack, command, respond):
+        await ack()
         project_name = command.get("text", "").strip()
         if not project_name:
-            respond("Usage: `/history <project>`\nExample: `/history mobile-app`")
+            await respond("Usage: `/history <project>`\nExample: `/history mobile-app`")
             return
 
         from app.services.timeline import get_project_timeline
@@ -231,7 +228,7 @@ if settings.SLACK_BOT_TOKEN:
         events = get_project_timeline(project_name, user_email="")
 
         if not events:
-            respond(f"No history found for *{project_name}*")
+            await respond(f"No history found for *{project_name}*")
             return
 
         blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"History: {project_name}"}}]
@@ -240,25 +237,20 @@ if settings.SLACK_BOT_TOKEN:
             evt_type = evt.get("type", "event")
             title = evt.get("title", "")
             detail = evt.get("detail", "")[:120]
-            blocks.append(
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*{date_str}* — _{evt_type}_\n*{title}*\n{detail}",
-                    },
-                }
-            )
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{date_str}* — _{evt_type}_\n*{title}*\n{detail}"},
+            })
             blocks.append({"type": "divider"})
 
-        respond(blocks=blocks)
+        await respond(blocks=blocks)
 
     @slack_app.command("/decision")
-    def handle_decision(ack, command, respond):
-        ack()
+    async def handle_decision(ack, command, respond):
+        await ack()
         text = command.get("text", "").strip()
         if not text:
-            respond("Usage: `/decision <decision text>`\nExample: `/decision Use Redis instead of Memcached for caching`")
+            await respond("Usage: `/decision <decision text>`\nExample: `/decision Use Redis instead of Memcached for caching`")
             return
 
         import datetime
@@ -280,26 +272,24 @@ if settings.SLACK_BOT_TOKEN:
             )
             db.add(record)
             db.commit()
-            respond(f"Decision recorded: *{text}*")
+            await respond(f"✅ Decision recorded: *{text}*")
         except Exception as e:
             db.rollback()
-            respond(f"Failed to record decision: {e}")
+            await respond(f"❌ Failed to record decision: {e}")
         finally:
             db.close()
 
     @slack_app.action("ghost_doc_approve")
-    def handle_ghost_approve(ack, body, action):
-        ack()
+    async def handle_ghost_approve(ack, body, action):
+        await ack()
         from app.services.ghost_docs import handle_ghost_doc_approve
-
         user_id = body.get("user", {}).get("id", "")
         handle_ghost_doc_approve(action, user_id)
 
     @slack_app.action("ghost_doc_reject")
-    def handle_ghost_reject(ack, body, action):
-        ack()
+    async def handle_ghost_reject(ack, body, action):
+        await ack()
         from app.services.ghost_docs import handle_ghost_doc_reject
-
         user_id = body.get("user", {}).get("id", "")
         handle_ghost_doc_reject(action, user_id)
 

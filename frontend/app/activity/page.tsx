@@ -63,7 +63,7 @@ export default function ActivityPage() {
   const grouped = groupByDay(filtered);
 
   return (
-    <div className="flex-1 overflow-y-auto h-full bg-[#fdfdff]">
+    <div className="flex-1 overflow-y-auto h-full">
       <div className="max-w-4xl mx-auto px-10 py-12">
         {/* Header */}
         <div className="mb-10">

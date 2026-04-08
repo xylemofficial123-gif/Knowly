@@ -15,7 +15,7 @@ interface GraphData {
 const SOURCE_META: Record<string, { label: string; color: string; bg: string; dot: string }> = {
   drive:    { label: "Google Drive",  color: "text-orange-600", bg: "bg-orange-50 border-orange-100",  dot: "bg-orange-400" },
   calendar: { label: "Calendar",      color: "text-blue-600",   bg: "bg-blue-50 border-blue-100",      dot: "bg-blue-400" },
-  slack:    { label: "Slack",         color: "text-purple-600", bg: "bg-purple-50 border-purple-100",  dot: "bg-purple-400" },
+  slack:    { label: "Slack",         color: "text-teal-600",   bg: "bg-teal-50 border-teal-100",      dot: "bg-teal-500" },
   meet:     { label: "Meet",          color: "text-green-600",  bg: "bg-green-50 border-green-100",    dot: "bg-green-400" },
   upload:   { label: "Uploads",       color: "text-gray-600",   bg: "bg-gray-50 border-gray-200",      dot: "bg-gray-400" },
 };
@@ -45,7 +45,7 @@ export default function GraphPage() {
   const totalDocs = data?.totals.docs ?? 0;
 
   return (
-    <div className="flex-1 overflow-y-auto h-full bg-[#fdfdff]">
+    <div className="flex-1 overflow-y-auto h-full">
       <div className="max-w-5xl mx-auto px-10 py-12">
         {/* Header */}
         <div className="mb-10">

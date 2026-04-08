@@ -6,7 +6,11 @@
 
 @layer base {
   body {
-    background: #fdfdff;
+    background:
+      radial-gradient(ellipse 90% 60% at 50% -10%, #bbf7d0 0%, transparent 55%),
+      radial-gradient(ellipse 60% 50% at 10% 90%,  #d1fae5 0%, transparent 50%),
+      radial-gradient(ellipse 50% 40% at 90% 70%,  #dcfce7 0%, transparent 50%),
+      #f0fdf4;
     color: #0a0a0f;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;

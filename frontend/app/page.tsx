@@ -11,11 +11,26 @@ export default function Home() {
   const { user } = useUser();
   const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "sachin.kurup@seedlinglabs.com";
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<any[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(sessionStorage.getItem("xylem_chat_messages") || "[]"); } catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [sessionId, setSessionId] = useState("");
+  const [sessionId, setSessionId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return sessionStorage.getItem("xylem_chat_session") || "";
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Persist chat state across navigation
+  useEffect(() => {
+    sessionStorage.setItem("xylem_chat_messages", JSON.stringify(messages));
+  }, [messages]);
+
+  useEffect(() => {
+    sessionStorage.setItem("xylem_chat_session", sessionId);
+  }, [sessionId]);
 
   // Stats could come from an API endpoint, but keeping it simple for now
   const stats = {
@@ -83,7 +98,6 @@ export default function Home() {
   useEffect(() => {
     const handleCustomQuery = (e: any) => {
       if (e.detail) {
-        // detail can now be a string (legacy) or an object { text, result }
         if (typeof e.detail === "string") {
           handleAsk(e.detail);
         } else {
@@ -91,12 +105,24 @@ export default function Home() {
         }
       }
     };
+    const handleNewQuery = () => {
+      sessionStorage.removeItem("xylem_chat_messages");
+      sessionStorage.removeItem("xylem_chat_session");
+      setMessages([]);
+      setQuestion("");
+      setError("");
+      setSessionId("");
+    };
     window.addEventListener("xylem_query", handleCustomQuery);
-    return () => window.removeEventListener("xylem_query", handleCustomQuery);
+    window.addEventListener("xylem_new_query", handleNewQuery);
+    return () => {
+      window.removeEventListener("xylem_query", handleCustomQuery);
+      window.removeEventListener("xylem_new_query", handleNewQuery);
+    };
   }, [handleAsk]);
 
   return (
-    <div className="flex-1 flex flex-col h-screen min-w-0 bg-[#fdfdff]">
+    <div className="flex-1 flex flex-col h-screen min-w-0">
       {/* Top Header Stats Bar */}
       <header className="h-20 border-b border-gray-100 bg-white/80 backdrop-blur-md px-10 flex items-center justify-between sticky top-0 z-40 shrink-0">
         <h2 className="text-xl font-bold tracking-tight text-foreground">Query memory</h2>
@@ -226,7 +252,7 @@ export default function Home() {
           {/* Active Sources Bar */}
           <div className="flex items-center gap-6 px-8 pb-4 pt-2 border-t border-gray-50/50 mt-1">
             {[
-              { name: "Slack", color: "bg-purple-400" },
+              { name: "Slack", color: "bg-teal-500" },
               { name: "Notion", color: "bg-gray-400" },
               { name: "Drive", color: "bg-orange-400" },
               { name: "Transcripts", color: "bg-green-400" }

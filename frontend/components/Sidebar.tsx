@@ -13,7 +13,7 @@ interface SidebarItem {
 }
 
 const navItems: SidebarItem[] = [
-  { id: "query", name: "Query memory", icon: "💎", href: "/" },
+  { id: "query", name: "Current query", icon: "💎", href: "/" },
   { id: "graph", name: "Knowledge graph", icon: "🌐", href: "/graph" },
   { id: "decisions", name: "Decision log", icon: "📜", href: "/decisions" },
   { id: "ingest", name: "Ingest sources", icon: "⚡", href: "/ingest" },
@@ -48,7 +48,7 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-[280px] bg-white border-r border-gray-100 flex flex-col pt-8 pb-6 shrink-0 h-screen z-50">
+    <aside className="w-[280px] border-r border-green-100/60 flex flex-col pt-8 pb-6 shrink-0 h-screen z-50" style={{ background: "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)" }}>
       {/* Brand */}
       <div className="px-7 mb-10 flex items-center gap-3">
         <div className="w-10 h-10 bg-accent rounded-xl flex items-center justify-center text-white text-xl shadow-lg shadow-accent/20">
@@ -60,8 +60,9 @@ export default function Sidebar() {
       {/* Primary Action Button */}
       <div className="px-5 mb-10">
         <button
-          onClick={() => window.location.href = "/"}
-          className="w-full bg-accent text-white py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-accent-dark transition-all shadow-md shadow-accent/10 active:scale-95"
+          onClick={() => window.dispatchEvent(new Event("xylem_new_query"))}
+          className="w-full text-white py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95"
+          style={{ background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)", boxShadow: "0 4px 16px rgba(22,163,74,.3)" }}
         >
           <span className="text-xl leading-none font-light">+</span> New query
         </button>

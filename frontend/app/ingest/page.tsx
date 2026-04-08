@@ -88,7 +88,7 @@ export default function AdminPage() {
   const { user } = useUser();
   const currentUserEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
 
-  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion" | "users" | "groups" | "upload" | "connections">(
+  const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion" | "users" | "groups" | "upload" | "connections" | "no-index">(
     "ingestion"
   );
 
@@ -144,6 +144,68 @@ export default function AdminPage() {
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadSharedWith, setUploadSharedWith] = useState("");
   const [uploadStatus, setUploadStatus] = useState("");
+
+  // No-Index Zones state
+  interface ExclusionRuleRecord {
+    id: string;
+    source_type: string;
+    identifier: string;
+    name: string;
+    reason: string;
+    created_by: string;
+    created_at: string;
+  }
+  const [exclusionRules, setExclusionRules] = useState<ExclusionRuleRecord[]>([]);
+  const [newRuleSource, setNewRuleSource] = useState("slack");
+  const [newRuleIdentifier, setNewRuleIdentifier] = useState("");
+  const [newRuleName, setNewRuleName] = useState("");
+  const [newRuleReason, setNewRuleReason] = useState("");
+
+  const fetchExclusionRules = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/exclusion-rules`);
+      const data = await res.json();
+      setExclusionRules(data.rules || []);
+    } catch (e) {
+      console.error("Failed to fetch exclusion rules:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createExclusionRule = async () => {
+    if (!newRuleIdentifier.trim()) return;
+    try {
+      const res = await fetch(`${API_URL}/api/admin/exclusion-rules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: newRuleSource,
+          identifier: newRuleIdentifier.trim(),
+          name: newRuleName.trim(),
+          reason: newRuleReason.trim(),
+        }),
+      });
+      if (res.ok) {
+        setNewRuleIdentifier("");
+        setNewRuleName("");
+        setNewRuleReason("");
+        fetchExclusionRules();
+      }
+    } catch (e) {
+      console.error("Failed to create exclusion rule:", e);
+    }
+  };
+
+  const deleteExclusionRule = async (ruleId: string) => {
+    try {
+      await fetch(`${API_URL}/api/admin/exclusion-rules/${ruleId}`, { method: "DELETE" });
+      fetchExclusionRules();
+    } catch (e) {
+      console.error("Failed to delete exclusion rule:", e);
+    }
+  };
 
   const fetchAuditLog = async () => {
     setLoading(true);
@@ -494,6 +556,7 @@ export default function AdminPage() {
     } else if (tab === "users") fetchUsers();
     else if (tab === "groups") fetchGroups();
     else if (tab === "upload") fetchGroups();
+    else if (tab === "no-index") fetchExclusionRules();
     else if (tab === "connections") {
       setConnectionsLoading(true);
       Promise.all([fetchClickupStatus(), fetchGoogleStatus(), fetchSlackStatus()]).finally(() =>
@@ -583,37 +646,75 @@ export default function AdminPage() {
     });
   };
 
+  const [adminOpen, setAdminOpen] = useState(false);
+
   const tabs = [
     { key: "connections", label: "Connections" },
+    { key: "ingestion", label: "Sources" },
+    { key: "upload", label: "Upload" },
+    { key: "no-index", label: "No-Index Zones" },
+  ] as const;
+
+  const adminTabs = [
+    { key: "users", label: "Users" },
+    { key: "groups", label: "Groups" },
     { key: "metrics", label: "Metrics" },
     { key: "audit", label: "Audit Log" },
     { key: "review", label: "Review Queue" },
     { key: "feedback", label: "Feedback" },
-    { key: "ingestion", label: "Ingestion" },
-    { key: "users", label: "Users" },
-    { key: "groups", label: "Groups" },
-    { key: "upload", label: "Upload" },
   ] as const;
 
   return (
     <main className="flex-1 overflow-y-auto h-full">
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Ingestion Management</h1>
-        <a href="/" className="text-sm text-blue-600 hover:underline">
-          &larr; Back to Oracle
-        </a>
+        <h1 className="text-2xl font-bold text-[#052e16]">Ingestion</h1>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <button
+              onClick={() => setAdminOpen(!adminOpen)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center gap-2 ${
+                adminTabs.some(t => t.key === tab)
+                  ? "bg-[#dcfce7] text-[#14532d] border-green-200"
+                  : "bg-white/60 text-gray-600 border-gray-200 hover:bg-green-50 hover:text-green-800"
+              }`}
+            >
+              ⚙ Admin
+              <span className="text-xs opacity-60">▾</span>
+            </button>
+            {adminOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-white/90 backdrop-blur-sm border border-green-100 rounded-xl shadow-lg shadow-green-900/5 py-1 z-50 min-w-[160px]">
+                {adminTabs.map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => { setTab(t.key); setAdminOpen(false); }}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                      tab === t.key
+                        ? "bg-[#dcfce7] text-[#14532d] font-semibold"
+                        : "text-gray-600 hover:bg-green-50 hover:text-green-800"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <a href="/" className="text-sm text-[#16a34a] hover:underline">
+            &larr; Back to Oracle
+          </a>
+        </div>
       </div>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 flex-wrap">
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); setAdminOpen(false); }}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               tab === t.key
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                ? "bg-[#dcfce7] text-[#14532d] border border-green-200 font-semibold"
+                : "bg-white/60 text-gray-600 border border-gray-200 hover:bg-green-50 hover:text-green-800"
             }`}
           >
             {t.label}
@@ -645,24 +746,24 @@ export default function AdminPage() {
 
           {/* ClickUp Card */}
           {!connectionsLoading && (
-            <div className="bg-[#1a1a2e] border border-gray-700 rounded-xl p-6">
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-[#7B68EE] rounded-lg flex items-center justify-center text-white font-bold text-sm">CU</div>
+                  <div className="w-10 h-10 bg-[#16a34a] rounded-lg flex items-center justify-center text-white font-bold text-sm">CU</div>
                   <div>
-                    <h3 className="text-white font-semibold">ClickUp</h3>
-                    <p className="text-xs text-gray-400">Ingest tasks, comments, and deliver Guardian alerts as ClickUp comments</p>
+                    <h3 className="text-gray-900 font-semibold">ClickUp</h3>
+                    <p className="text-xs text-gray-500">Ingest tasks, comments, and deliver Guardian alerts as ClickUp comments</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {clickupStatus?.connected ? (
-                    <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                    <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
                       Connected
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-700 px-2.5 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                    <span className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
                       Not connected
                     </span>
                   )}
@@ -670,18 +771,18 @@ export default function AdminPage() {
               </div>
 
               {clickupStatus?.connected && (
-                <div className="mt-4 pt-4 border-t border-gray-700 grid grid-cols-2 gap-3 text-sm">
+                <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <p className="text-gray-400 text-xs">Workspace</p>
-                    <p className="text-white font-medium">{clickupStatus.workspace_name || "—"}</p>
+                    <p className="text-gray-500 text-xs">Workspace</p>
+                    <p className="text-gray-900 font-medium">{clickupStatus.workspace_name || "—"}</p>
                   </div>
                   <div>
-                    <p className="text-gray-400 text-xs">Team ID</p>
-                    <p className="text-white font-medium">{clickupStatus.team_id || "—"}</p>
+                    <p className="text-gray-500 text-xs">Team ID</p>
+                    <p className="text-gray-900 font-medium">{clickupStatus.team_id || "—"}</p>
                   </div>
                   <div>
-                    <p className="text-gray-400 text-xs">Connected</p>
-                    <p className="text-white font-medium">
+                    <p className="text-gray-500 text-xs">Connected</p>
+                    <p className="text-gray-900 font-medium">
                       {clickupStatus.connected_at
                         ? new Date(clickupStatus.connected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })
                         : "—"}
@@ -694,14 +795,14 @@ export default function AdminPage() {
                 {clickupStatus?.connected ? (
                   <button
                     onClick={disconnectClickUp}
-                    className="px-4 py-2 text-sm bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition"
+                    className="px-4 py-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition"
                   >
                     Disconnect
                   </button>
                 ) : (
                   <button
                     onClick={connectClickUp}
-                    className="px-4 py-2 text-sm bg-[#7B68EE] text-white rounded-lg hover:bg-[#6a58d6] transition font-medium"
+                    className="px-4 py-2 text-sm bg-[#16a34a] text-white rounded-lg hover:bg-[#15803d] transition font-medium"
                   >
                     Connect ClickUp
                   </button>
@@ -712,26 +813,26 @@ export default function AdminPage() {
 
           {/* Google Card */}
           {!connectionsLoading && (
-            <div className="bg-[#1a1a2e] border border-gray-700 rounded-xl p-6">
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-sm font-bold">
+                  <div className="w-10 h-10 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-sm font-bold">
                     <span style={{ background: "linear-gradient(135deg, #4285F4 25%, #EA4335 25%, #EA4335 50%, #FBBC05 50%, #FBBC05 75%, #34A853 75%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>G</span>
                   </div>
                   <div>
-                    <h3 className="text-white font-semibold">Google</h3>
-                    <p className="text-xs text-gray-400">Drive docs, Meet transcripts, Calendar events</p>
+                    <h3 className="text-gray-900 font-semibold">Google</h3>
+                    <p className="text-xs text-gray-500">Drive docs, Meet transcripts, Calendar events</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {googleStatus?.connected ? (
-                    <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-400/10 px-2.5 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                    <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
                       Connected
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-700 px-2.5 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                    <span className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
                       Not connected
                     </span>
                   )}
@@ -739,14 +840,14 @@ export default function AdminPage() {
               </div>
 
               {googleStatus?.connected && (
-                <div className="mt-4 pt-4 border-t border-gray-700 grid grid-cols-2 gap-3 text-sm">
+                <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <p className="text-gray-400 text-xs">Account</p>
-                    <p className="text-white font-medium">{googleStatus.connected_email || "—"}</p>
+                    <p className="text-gray-500 text-xs">Account</p>
+                    <p className="text-gray-900 font-medium">{googleStatus.connected_email || "—"}</p>
                   </div>
                   <div>
-                    <p className="text-gray-400 text-xs">Connected</p>
-                    <p className="text-white font-medium">
+                    <p className="text-gray-500 text-xs">Connected</p>
+                    <p className="text-gray-900 font-medium">
                       {googleStatus.connected_at
                         ? new Date(googleStatus.connected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })
                         : "—"}
@@ -759,14 +860,14 @@ export default function AdminPage() {
                 {googleStatus?.connected ? (
                   <button
                     onClick={disconnectGoogle}
-                    className="px-4 py-2 text-sm bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition"
+                    className="px-4 py-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition"
                   >
                     Disconnect
                   </button>
                 ) : (
                   <button
                     onClick={connectGoogle}
-                    className="px-4 py-2 text-sm bg-white text-gray-800 rounded-lg hover:bg-gray-100 transition font-medium"
+                    className="px-4 py-2 text-sm bg-[#16a34a] text-white rounded-lg hover:bg-[#15803d] transition font-medium"
                   >
                     Connect Google
                   </button>
@@ -776,35 +877,41 @@ export default function AdminPage() {
           )}
 
           {/* Slack Card */}
-          <div className={`bg-[#1a1a2e] border rounded-xl p-6 ${slackStatus?.connected ? "border-[#4A154B]" : "border-gray-700"}`}>
+          <div className={`bg-white border rounded-xl p-6 ${slackStatus?.connected ? "border-[#16a34a]" : "border-gray-200"}`}>
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-[#4A154B] rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
+                <div className="w-10 h-10 bg-[#16a34a] rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
                 <div>
-                  <h3 className="text-white font-semibold">Slack</h3>
-                  <p className="text-xs text-gray-400">Real-time message ingestion, slash commands, Guardian thread alerts</p>
+                  <h3 className="text-gray-900 font-semibold">Slack</h3>
+                  <p className="text-xs text-gray-500">Real-time message ingestion, slash commands, Guardian thread alerts</p>
                 </div>
               </div>
               {slackStatus?.connected ? (
-                <span className="text-xs text-green-400 bg-green-900/30 px-2.5 py-1 rounded-full">Connected</span>
+                <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  Connected
+                </span>
               ) : (
-                <span className="text-xs text-gray-500 bg-gray-800 px-2.5 py-1 rounded-full">Not connected</span>
+                <span className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                  Not connected
+                </span>
               )}
             </div>
             {slackStatus?.connected ? (
-              <div className="mt-4 pt-4 border-t border-gray-700 grid grid-cols-2 gap-3 text-sm">
+              <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="text-gray-400 text-xs">Workspace</p>
-                  <p className="text-white font-medium">{slackStatus.workspace_name || slackStatus.workspace_id || "—"}</p>
+                  <p className="text-gray-500 text-xs">Workspace</p>
+                  <p className="text-gray-900 font-medium">{slackStatus.workspace_name || slackStatus.workspace_id || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-gray-400 text-xs">Bot user</p>
-                  <p className="text-white font-medium">{slackStatus.connected_by || "—"}</p>
+                  <p className="text-gray-500 text-xs">Bot user</p>
+                  <p className="text-gray-900 font-medium">{slackStatus.connected_by || "—"}</p>
                 </div>
                 {slackStatus.connected_at && (
                   <div>
-                    <p className="text-gray-400 text-xs">Connected</p>
-                    <p className="text-white font-medium">
+                    <p className="text-gray-500 text-xs">Connected</p>
+                    <p className="text-gray-900 font-medium">
                       {new Date(slackStatus.connected_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" })}
                     </p>
                   </div>
@@ -812,7 +919,7 @@ export default function AdminPage() {
                 <div className="col-span-2 mt-1">
                   <button
                     onClick={disconnectSlack}
-                    className="px-4 py-2 text-sm bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition"
+                    className="px-4 py-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition"
                   >
                     Disconnect
                   </button>
@@ -820,13 +927,13 @@ export default function AdminPage() {
               </div>
             ) : (
               <div className="mt-4">
-                <p className="text-xs text-gray-400 mb-3">
+                <p className="text-xs text-gray-500 mb-3">
                   Connect your Slack workspace to enable message ingestion and real-time alerts.
                 </p>
                 <button
                   onClick={connectSlack}
                   disabled={!currentUserEmail}
-                  className="px-4 py-2 bg-[#4A154B] hover:bg-[#611f69] text-white text-sm rounded-lg transition disabled:opacity-50"
+                  className="px-4 py-2 bg-[#16a34a] hover:bg-[#15803d] text-white text-sm rounded-lg transition disabled:opacity-50"
                 >
                   Connect Slack
                 </button>
@@ -1035,7 +1142,7 @@ export default function AdminPage() {
             <div key={item.id} className="p-5 bg-white rounded-lg border">
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 rounded-full mr-2">
+                  <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded-full mr-2">
                     {item.decision_type}
                   </span>
                   <span className="text-sm text-gray-500">
@@ -1496,6 +1603,125 @@ export default function AdminPage() {
       )}
 
       {/* ── Upload Tab ────────────────────────────────────────── */}
+      {/* ── No-Index Zones Tab ──────────────────────────────── */}
+      {tab === "no-index" && !loading && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold">No-Index Zones</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Exclude specific Slack channels, Drive folders, or ClickUp spaces from ingestion. Content in these zones will never be indexed.
+            </p>
+          </div>
+
+          {/* Add new rule */}
+          <div className="bg-white rounded-xl border p-5 space-y-4">
+            <h3 className="font-medium text-sm">Add Exclusion Rule</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Source</label>
+                <select
+                  value={newRuleSource}
+                  onChange={(e) => setNewRuleSource(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="slack">Slack Channel</option>
+                  <option value="drive">Drive Folder</option>
+                  <option value="clickup">ClickUp Space</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  {newRuleSource === "slack" ? "Channel ID" : newRuleSource === "drive" ? "Folder ID" : "Space ID"}
+                </label>
+                <input
+                  type="text"
+                  value={newRuleIdentifier}
+                  onChange={(e) => setNewRuleIdentifier(e.target.value)}
+                  placeholder={newRuleSource === "slack" ? "C0123ABCDEF" : "folder-or-space-id"}
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Display Name</label>
+                <input
+                  type="text"
+                  value={newRuleName}
+                  onChange={(e) => setNewRuleName(e.target.value)}
+                  placeholder="#hr-private, Salary Docs, etc."
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Reason (optional)</label>
+                <input
+                  type="text"
+                  value={newRuleReason}
+                  onChange={(e) => setNewRuleReason(e.target.value)}
+                  placeholder="Sensitive HR content"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+            <button
+              onClick={createExclusionRule}
+              disabled={!newRuleIdentifier.trim()}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-40 transition-colors"
+            >
+              Add No-Index Rule
+            </button>
+          </div>
+
+          {/* Existing rules */}
+          {exclusionRules.length === 0 ? (
+            <div className="bg-white rounded-xl border p-8 text-center text-gray-400">
+              No exclusion rules configured. All sources are being indexed.
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Source</th>
+                    <th className="px-4 py-3 text-left">Name</th>
+                    <th className="px-4 py-3 text-left">Identifier</th>
+                    <th className="px-4 py-3 text-left">Reason</th>
+                    <th className="px-4 py-3 text-left">Created</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {exclusionRules.map((rule) => (
+                    <tr key={rule.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          rule.source_type === "slack" ? "bg-teal-100 text-teal-700" :
+                          rule.source_type === "drive" ? "bg-blue-100 text-blue-700" :
+                          "bg-green-100 text-green-700"
+                        }`}>
+                          {rule.source_type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-medium">{rule.name || "—"}</td>
+                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">{rule.identifier}</td>
+                      <td className="px-4 py-3 text-gray-500">{rule.reason || "—"}</td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">{rule.created_at ? new Date(rule.created_at).toLocaleDateString() : ""}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => deleteExclusionRule(rule.id)}
+                          className="text-red-500 hover:text-red-700 text-xs font-medium"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === "upload" && (
         <div className="max-w-2xl space-y-6">
           <section className="bg-white rounded-xl border p-6 space-y-5">
