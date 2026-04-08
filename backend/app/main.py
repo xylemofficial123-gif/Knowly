@@ -34,15 +34,21 @@ if settings.SLACK_BOT_TOKEN:
     )
 
     @slack_app.error
-    async def global_error_handler(error, body, ack, logger):
+    async def global_error_handler(error, body, logger):
         import traceback
         tb = traceback.format_exc()
-        logger.exception(f"Slack Bolt error: {error}")
-        logger.error(f"Request body: {body}")
-        with open("/tmp/slack_bolt_error.log", "a") as f:
-            f.write(f"\n=== ERROR ===\n{error}\n{tb}\nbody={body}\n")
-        # Must ack so Slack doesn't show dispatch_unknown_error
-        await ack(f"❌ Something went wrong: {str(error)[:100]}")
+        logger.exception(f"Slack Bolt error: {error}\n{tb}")
+        # Post error to response_url so it's visible in Slack (best-effort)
+        response_url = (body or {}).get("response_url", "")
+        if response_url:
+            try:
+                import requests as _req
+                _req.post(response_url, json={
+                    "text": f"❌ Error: {str(error)[:300]}",
+                    "response_type": "ephemeral",
+                }, timeout=5)
+            except Exception:
+                pass
 
     @slack_app.event("message")
     async def handle_message(event, say):
@@ -143,77 +149,56 @@ if settings.SLACK_BOT_TOKEN:
         await respond(result)
 
     @slack_app.command("/oracle")
-    async def handle_oracle(ack, command):
-        await ack()  # Must respond to Slack within 3 seconds
+    async def handle_oracle(ack, respond, command):
+        await ack()
 
         question = command.get("text", "").strip()
-        response_url = command.get("response_url", "")
         user_id = command.get("user_id", "")
 
         if not question:
+            await respond("Usage: `/oracle <your question>`\nExample: `/oracle What was decided about the pricing model?`")
             return
-        if not response_url:
-            return
 
-        # Run the slow oracle call in a background thread so we don't block the event loop
-        import asyncio
-        import threading
-        import requests as req
+        await respond({"text": "🔍 Searching the knowledge base…", "response_type": "ephemeral"})
 
-        def _run():
-            # Post a "thinking" message immediately
-            try:
-                req.post(response_url, json={
-                    "text": "🔍 Searching the knowledge base…",
-                    "response_type": "ephemeral",
-                }, timeout=5)
-            except Exception:
-                pass
+        # Resolve Slack user ID → email
+        user_email = "demo@yourcompany.com"
+        try:
+            from slack_sdk.web.async_client import AsyncWebClient
+            client = AsyncWebClient(token=settings.SLACK_BOT_TOKEN)
+            user_info = await client.users_info(user=user_id)
+            user_email = user_info.get("user", {}).get("profile", {}).get("email", "") or user_email
+        except Exception:
+            pass
 
-            user_email = ""
-            try:
-                from slack_sdk import WebClient
-                client = WebClient(token=settings.SLACK_BOT_TOKEN)
-                user_info = client.users_info(user=user_id)
-                user_email = user_info.get("user", {}).get("profile", {}).get("email", "")
-            except Exception:
-                pass
+        try:
+            import asyncio
+            from app.services.oracle import ask_oracle
+            result = await asyncio.get_event_loop().run_in_executor(None, ask_oracle, question, user_email)
+            answer = result.get("answer", "No answer found.")
+            citations = result.get("citations", [])
 
-            if not user_email:
-                user_email = "demo@yourcompany.com"
+            citation_text = ""
+            if citations:
+                citation_text = "\n\n*Sources:*\n"
+                for i, c in enumerate(citations, 1):
+                    source = c.get("source", "unknown")
+                    display = c.get("display", "")
+                    url = c.get("url", "")
+                    if url:
+                        citation_text += f"{i}. <{url}|{display}> ({source})\n"
+                    else:
+                        citation_text += f"{i}. {display} ({source})\n"
 
-            try:
-                from app.services.oracle import ask_oracle
-                result = ask_oracle(question, user_email)
-                answer = result.get("answer", "No answer found.")
-                citations = result.get("citations", [])
+            await respond({
+                "text": f"{answer}{citation_text}",
+                "response_type": "in_channel",
+                "replace_original": False,
+            })
 
-                citation_text = ""
-                if citations:
-                    citation_text = "\n\n*Sources:*\n"
-                    for i, c in enumerate(citations, 1):
-                        source = c.get("source", "unknown")
-                        display = c.get("display", "")
-                        url = c.get("url", "")
-                        if url:
-                            citation_text += f"{i}. <{url}|{display}> ({source})\n"
-                        else:
-                            citation_text += f"{i}. {display} ({source})\n"
-
-                req.post(response_url, json={
-                    "text": f"{answer}{citation_text}",
-                    "response_type": "in_channel",
-                    "replace_original": False,
-                }, timeout=10)
-
-            except Exception as e:
-                logger.error(f"/oracle background error: {e}", exc_info=True)
-                req.post(response_url, json={
-                    "text": "❌ Something went wrong fetching the answer. Please try again.",
-                    "response_type": "ephemeral",
-                }, timeout=5)
-
-        threading.Thread(target=_run, daemon=True).start()
+        except Exception as e:
+            logger.error(f"/oracle error: {e}", exc_info=True)
+            await respond({"text": f"❌ Something went wrong: {str(e)[:200]}", "response_type": "ephemeral"})
 
     @slack_app.command("/history")
     async def handle_history(ack, command, respond):
