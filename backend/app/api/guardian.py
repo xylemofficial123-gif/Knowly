@@ -109,6 +109,34 @@ def check_guardian(req: GuardianCheckRequest):
     )
 
 
+class DriftCheckRequest(BaseModel):
+    text: str
+    user_email: str = ""
+
+
+@router.post("/drift-check")
+def check_drift_endpoint(req: DriftCheckRequest):
+    """Manually check if text contradicts any active decision."""
+    from app.services.drift_detector import check_drift
+
+    result = check_drift(req.text, req.user_email)
+    return {
+        "has_drift": result.has_drift,
+        "alert_text": result.alert_text,
+        "matches": [
+            {
+                "decision_id": m.decision_id,
+                "decision_text": m.decision_text,
+                "rationale": m.rationale,
+                "decided_at": m.decided_at,
+                "similarity": m.similarity,
+                "classification": m.classification,
+            }
+            for m in result.matches
+        ],
+    }
+
+
 @router.get("/alerts")
 def list_alerts(
     limit: int = Query(50, ge=1, le=200),

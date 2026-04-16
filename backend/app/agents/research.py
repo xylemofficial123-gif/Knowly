@@ -31,11 +31,12 @@ Formatting rules:
 
 Content rules:
 - ONLY use information that is DIRECTLY relevant to the user's question. Ignore tangentially related content even if it appears in the sources.
-- Only use information from the provided sources. Never invent facts.
+- Only use information from the provided sources. NEVER invent facts, rationale, or context.
 - If sources conflict, note the conflict and cite both.
-- If you can't find the answer, say so honestly.
+- If you cannot find the answer in the sources, say exactly: "I cannot find a documented record of this in the company's knowledge base." Do not guess or speculate.
 - Be concise but thorough — capture all key points that are relevant to the question, not just a few highlights.
 - A focused, shorter answer is ALWAYS better than a padded answer with unrelated information.
+- If a source is marked as "draft" or "in_review", explicitly note this: "Note: this information comes from a draft document and may not be finalized."
 - If a decision was REVERSED, always mention both the original decision and the reversal with dates and reason. Format: "Originally decided X on [date], but this was reversed to Y on [date] because Z."
 
 Original Question: {question}
@@ -126,6 +127,15 @@ class ResearchAgent(BaseAgent):
                     r.score *= 0.5  # Penalize calendar stubs (they lack content)
             all_candidates.sort(key=lambda x: x[2].score, reverse=True)
 
+        # Phase 1.6: Version awareness — deprioritize draft documents
+        for i, q, r in all_candidates:
+            status = r.payload.get("doc_status", "unknown")
+            if status == "draft":
+                r.score *= 0.6   # Heavy penalty for drafts
+            elif status == "in_review":
+                r.score *= 0.85  # Slight penalty for in-review docs
+        all_candidates.sort(key=lambda x: x[2].score, reverse=True)
+
         # Phase 2: For meeting queries with recency — isolate the most recent meeting
         # across ALL collected results (not per-query)
         if needs_recency and context.query_type in ("meeting_summary", "timeline") and not topic_filter_enabled:
@@ -158,7 +168,9 @@ class ResearchAgent(BaseAgent):
                 url = r.payload.get("url", "")
                 source = r.payload.get("source", "unknown")
 
-                research_section += f"[{label}] (title: {title}, source: {source})\n{text}\n\n"
+                doc_status = r.payload.get("doc_status", "")
+                status_tag = f", status: {doc_status}" if doc_status in ("draft", "in_review") else ""
+                research_section += f"[{label}] (title: {title}, source: {source}{status_tag})\n{text}\n\n"
 
                 citation_map[label] = {
                     "url": url,

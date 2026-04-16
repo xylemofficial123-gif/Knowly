@@ -145,6 +145,11 @@ def ingest_message(msg: dict, channel_id: str, channel_acl: list[str] = None):
     if channel_id in no_index:
         return
 
+    # Check DB-based exclusion rules (no-index zones)
+    from app.services.exclusion_service import is_excluded
+    if is_excluded("slack", channel_id):
+        return
+
     # If no ACL provided (real-time event), fetch channel members now
     if channel_acl is None:
         channel_acl = get_channel_member_emails(channel_id)
@@ -213,11 +218,15 @@ def backfill_all_channels():
             break
 
     no_index = settings.no_index_channels
+    from app.services.exclusion_service import get_excluded_ids, refresh_cache
+    refresh_cache()  # Refresh at start of backfill
+    excluded_channels = get_excluded_ids("slack")
     total = 0
 
     for ch in channels:
-        if ch["id"] in no_index:
-            logger.info(f"Skipping no-index channel {ch['id']} ({ch.get('name')})")
+        ch_id = ch["id"]
+        if ch_id in no_index or ch_id in excluded_channels:
+            logger.info(f"Skipping no-index channel {ch_id} ({ch.get('name')})")
             continue
         if not ch.get("is_member", False):
             continue

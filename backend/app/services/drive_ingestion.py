@@ -217,9 +217,15 @@ def _get_file_text(service, file_info: dict) -> str:
 
 
 def _get_folder_tree(service, root_ids: list[str]) -> set[str]:
-    """Recursively find all subfolder IDs for a list of root folders."""
-    all_folders = set(root_ids)
-    to_process = list(root_ids)
+    """Recursively find all subfolder IDs for a list of root folders.
+    Skips folders that are in no-index exclusion zones."""
+    from app.services.exclusion_service import is_excluded
+
+    all_folders = set()
+    for rid in root_ids:
+        if not is_excluded("drive", rid):
+            all_folders.add(rid)
+    to_process = list(all_folders)
 
     while to_process:
         current_id = to_process.pop(0)
@@ -238,7 +244,7 @@ def _get_folder_tree(service, root_ids: list[str]) -> set[str]:
             )
             for f in resp.get("files", []):
                 f_id = f["id"]
-                if f_id not in all_folders:
+                if f_id not in all_folders and not is_excluded("drive", f_id):
                     all_folders.add(f_id)
                     to_process.append(f_id)
             
@@ -409,6 +415,33 @@ def _build_edit_history_text(file_info: dict, revision_history: list[dict]) -> s
     return "\n".join(parts)
 
 
+def _detect_doc_status(title: str, text: str, file_info: dict) -> str:
+    """Classify a Drive document as draft, in_review, or finalized.
+
+    Heuristics:
+    - Title or content contains "DRAFT", "[DRAFT]", "WIP", "work in progress" → draft
+    - Title contains "REVIEW", "[REVIEW]", "RFC", "for review" → in_review
+    - File has >= 3 revisions AND no draft indicators → finalized
+    - Otherwise → unknown (treated as finalized for search purposes)
+    """
+    title_lower = title.lower()
+    # Check first 2000 chars of content for status markers
+    content_head = text[:2000].lower()
+
+    draft_signals = ["draft", "[draft]", "wip", "work in progress", "do not share", "rough draft"]
+    review_signals = ["[review]", "for review", "rfc", "pending review", "awaiting approval"]
+
+    for signal in draft_signals:
+        if signal in title_lower or signal in content_head:
+            return "draft"
+
+    for signal in review_signals:
+        if signal in title_lower or signal in content_head:
+            return "in_review"
+
+    return "finalized"
+
+
 def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
     service = _get_drive_service(user_email)
     file_id = file_info["id"]
@@ -419,6 +452,9 @@ def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
     if not text or len(text.strip()) < 20:
         logger.debug(f"Skipping empty/short file: {title}")
         return False
+
+    # Version awareness: detect document status
+    doc_status = _detect_doc_status(title, text, file_info)
 
     # Fetch revision history
     revision_history = _get_revision_history(service, file_id)
@@ -442,6 +478,7 @@ def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
         "created_at": file_info.get("createdTime", ""),
         "revision_count": len(revision_history),
         "revision_history": revision_history[-10:],
+        "doc_status": doc_status,
     }
 
     # Fetch real permissions from Drive API
@@ -455,6 +492,7 @@ def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
         acl=acl,
         title=title,
         extra_metadata=metadata,
+        doc_status=doc_status,
     )
     return True
 
@@ -462,6 +500,8 @@ def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
 def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None, user_email: str = None) -> int:
     from app.core.database import SessionLocal
     from app.models import Document
+    from app.services.exclusion_service import refresh_cache
+    refresh_cache()
 
     # Priority: 
     # 1. folder_ids (list passed from tasks or API)

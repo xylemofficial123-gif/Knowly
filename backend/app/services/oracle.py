@@ -88,6 +88,12 @@ def retrieve_chunks(question: str, user_email: str, top_k: int = 8):
         text_preview = r.payload.get("text_preview", "")
         kw_score = _keyword_overlap(question, text_preview)
         combined = 0.7 * r.score + 0.3 * kw_score
+        # Version awareness: deprioritize draft documents
+        doc_status = r.payload.get("doc_status", "unknown")
+        if doc_status == "draft":
+            combined *= 0.6
+        elif doc_status == "in_review":
+            combined *= 0.85
         scored.append((r, combined))
 
     scored.sort(key=lambda x: x[1], reverse=True)

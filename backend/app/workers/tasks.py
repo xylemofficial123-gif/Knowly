@@ -254,6 +254,7 @@ def process_guardian_check(
         deliver_slack_alert,
         deliver_clickup_comment,
     )
+    from app.services.drift_detector import check_drift
     from app.core.database import SessionLocal
     from app.models import GuardianAlert
 
@@ -262,8 +263,24 @@ def process_guardian_check(
         agent = GuardianAgent()
         result = agent.check(text, user_email, trigger_source, source_id, source_url)
 
+        # Drift detection: check if content contradicts active decisions
+        drift_result = check_drift(text, user_email)
+
         status = "suppressed"
-        if result.has_match:
+        if result.has_match or drift_result.has_drift:
+            # Combine alert text if both triggered
+            combined_alert = result.alert_text if result.has_match else ""
+            if drift_result.has_drift:
+                if combined_alert:
+                    combined_alert += "\n\n"
+                combined_alert += drift_result.alert_text
+            # Patch combined text onto result for delivery
+            if combined_alert and not result.has_match:
+                result.has_match = True
+                result.alert_text = combined_alert
+            elif combined_alert:
+                result.alert_text = combined_alert
+
             # Attempt delivery
             delivered = False
             if trigger_source == "slack" and slack_channel_id and slack_thread_ts:

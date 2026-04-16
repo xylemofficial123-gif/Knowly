@@ -6,7 +6,7 @@ import logging
 from typing import Optional, List
 
 from app.core.database import SessionLocal
-from app.models import AuditLog, DecisionRecord, AnswerFeedback, GlobalSettings, Document, Chunk
+from app.models import AuditLog, DecisionRecord, AnswerFeedback, GlobalSettings, Document, Chunk, ExclusionRule
 from app.models.review_queue import ReviewQueueItem
 
 logger = logging.getLogger(__name__)
@@ -603,6 +603,100 @@ def trigger_decision_extraction():
     except Exception as e:
         logger.error(f"Decision extraction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Exclusion Rules (No-Index Zones) ---
+
+VALID_EXCLUSION_SOURCES = {"drive", "slack", "clickup"}
+
+
+class ExclusionRuleRequest(BaseModel):
+    source_type: str  # drive | slack | clickup
+    identifier: str   # folder ID, channel ID, space ID
+    name: str = ""    # human-readable label
+    reason: str = ""
+
+
+@router.get("/exclusion-rules")
+def list_exclusion_rules():
+    db = SessionLocal()
+    try:
+        rules = db.query(ExclusionRule).order_by(ExclusionRule.created_at.desc()).all()
+        return {
+            "rules": [
+                {
+                    "id": str(r.id),
+                    "source_type": r.source_type,
+                    "identifier": r.identifier,
+                    "name": r.name or "",
+                    "reason": r.reason or "",
+                    "created_by": r.created_by or "",
+                    "created_at": r.created_at.isoformat() if r.created_at else "",
+                }
+                for r in rules
+            ]
+        }
+    finally:
+        db.close()
+
+
+@router.post("/exclusion-rules")
+def create_exclusion_rule(req: ExclusionRuleRequest):
+    if req.source_type not in VALID_EXCLUSION_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source_type must be one of: {', '.join(VALID_EXCLUSION_SOURCES)}",
+        )
+    db = SessionLocal()
+    try:
+        existing = (
+            db.query(ExclusionRule)
+            .filter(
+                ExclusionRule.source_type == req.source_type,
+                ExclusionRule.identifier == req.identifier,
+            )
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="This exclusion rule already exists")
+
+        rule = ExclusionRule(
+            source_type=req.source_type,
+            identifier=req.identifier,
+            name=req.name,
+            reason=req.reason,
+        )
+        db.add(rule)
+        db.commit()
+        return {"status": "created", "id": str(rule.id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Create exclusion rule failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.delete("/exclusion-rules/{rule_id}")
+def delete_exclusion_rule(rule_id: str):
+    db = SessionLocal()
+    try:
+        rule = db.query(ExclusionRule).filter(ExclusionRule.id == rule_id).first()
+        if not rule:
+            raise HTTPException(status_code=404, detail="Exclusion rule not found")
+        db.delete(rule)
+        db.commit()
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Delete exclusion rule failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 
 VALID_SOURCES = {"drive", "meet", "calendar", "slack", "clickup", "upload"}

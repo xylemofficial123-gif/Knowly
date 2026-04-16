@@ -31,6 +31,7 @@ def chunk_and_store(
     slack_user_id: str = "",
     extra_metadata: dict = None,
     chunk_type: str = "full_text",
+    doc_status: str = "unknown",
 ):
     db: Session = SessionLocal()
     try:
@@ -41,6 +42,7 @@ def chunk_and_store(
             existing.url = url
             existing.acl = acl
             existing.updated_at = now_utc()
+            existing.doc_status = doc_status
             db.commit()
             doc_id = existing.id
             old_chunks = db.query(Chunk).filter(Chunk.document_id == doc_id).all()
@@ -57,6 +59,7 @@ def chunk_and_store(
                 content=text,
                 url=url,
                 acl=acl,
+                doc_status=doc_status,
             )
             db.add(document)
             db.commit()
@@ -79,6 +82,7 @@ def chunk_and_store(
                 "entities": entities,
                 "title": title,
                 "chunk_type": chunk_type,
+                "doc_status": doc_status,
                 "ingested_at": now_utc().isoformat(),
             }
             if extra_metadata:

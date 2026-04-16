@@ -19,6 +19,8 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
     freshness_score = Column(Float, default=1.0)
+    # Version awareness: draft | in_review | finalized | unknown
+    doc_status = Column(String, default="unknown")
 
 
 class Chunk(Base):
@@ -145,6 +147,23 @@ class OAuthConnection(Base):
     connected_by   = Column(String, nullable=True)
     connected_at   = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at     = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
+class ExclusionRule(Base):
+    """No-index zones: mark specific sources/channels/folders as excluded from ingestion."""
+    __tablename__ = "exclusion_rules"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # drive | slack | clickup
+    source_type = Column(String, nullable=False)
+    # Channel ID, folder ID, space ID, etc.
+    identifier = Column(String, nullable=False)
+    # Human-readable name (e.g., "#hr-private", "Salary Docs")
+    name = Column(String, nullable=True)
+    reason = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("source_type", "identifier", name="uq_exclusion_rule"),)
 
 
 class GuardianAlert(Base):

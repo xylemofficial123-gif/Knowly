@@ -30,7 +30,9 @@ Formatting rules:
 - Keep each bullet concise (1-2 sentences max)
 - Cite sources as [1], [2], etc. (use the number from SOURCE_N)
 - Don't over-cite — pick the 1-2 most relevant sources per claim
-- If a section has no info, write "No information available" — don't invent
+- If a section has no info, write "No information available" — NEVER invent or guess
+- ONLY use information from the provided sources and decisions. If you cannot find evidence for a claim, do not make it.
+- If the topic has no documented history at all, say: "I cannot find any documented records about this topic."
 - Dates in DD/MM/YYYY IST format
 - SKIP entire sections if there's no directly relevant info for them — a shorter, focused answer is better than a padded one
 

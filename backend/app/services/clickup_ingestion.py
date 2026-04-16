@@ -177,9 +177,15 @@ def ingest_all_clickup(team_id: str = None):
     spaces = get_all_spaces(team_id)
     logger.info(f"Found {len(spaces)} spaces")
 
+    from app.services.exclusion_service import is_excluded, refresh_cache
+    refresh_cache()
+
     for space in spaces:
         space_id = space["id"]
         space_name = space.get("name", space_id)
+        if is_excluded("clickup", space_id):
+            logger.info(f"Skipping excluded ClickUp space '{space_name}'")
+            continue
         lists = get_all_lists(space_id)
         logger.info(f"Space '{space_name}': {len(lists)} lists")
 
