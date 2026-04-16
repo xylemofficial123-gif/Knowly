@@ -166,6 +166,20 @@ class ExclusionRule(Base):
     __table_args__ = (UniqueConstraint("source_type", "identifier", name="uq_exclusion_rule"),)
 
 
+class LiveMeetingSession(Base):
+    """A real-time meeting session managed by the Real-Time Meeting Agent."""
+    __tablename__ = "live_meeting_sessions"
+    id = Column(String, primary_key=True)  # UUID string — flows through WS URL path
+    title = Column(String, nullable=False, default="Untitled Meeting")
+    user_email = Column(String, nullable=False, default="", index=True)
+    status = Column(String, default="active")  # active | processing | completed | ended
+    started_at = Column(DateTime, default=datetime.datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)
+    summary = Column(Text, nullable=True)
+    decisions_extracted = Column(JSON, default=list)
+    action_items_extracted = Column(JSON, default=list)
+
+
 class GuardianAlert(Base):
     """Log of every Guardian Agent check that produced a match."""
     __tablename__ = "guardian_alerts"

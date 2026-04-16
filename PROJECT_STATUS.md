@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-04-07 (UI refresh)
+> **Last updated**: 2026-04-16 (Real-Time Meeting Agent)
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -79,7 +79,7 @@ FastAPI Backend
 | Orchestrator | DONE | Agent selection, session management, multi-turn conversation support |
 | Guardian Agent | DONE | Cross-source redundancy prevention + drift detection — embeds trigger text, searches all sources, ACL filters, LLM-synthesises alert, checks for decision contradictions, delivers as Slack thread reply or ClickUp comment, logs to `guardian_alerts` table |
 | Project Manager Agent | NOT STARTED | Action item tracking, follow-up reminders, weekly status reports |
-| Real-Time Meeting Agent | NOT STARTED | Live meeting monitoring, real-time re-litigation alerts |
+| Real-Time Meeting Agent | DONE | WebSocket live transcript streaming, real-time re-litigation + decision/action-item detection, post-session AI summary stored in knowledge base. WS: `/api/meeting/ws/{id}`, REST: `/api/meeting/start|end|sessions`. Frontend: `/meeting` page. |
 
 ### Intelligence Features
 
@@ -456,6 +456,7 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-04-16 | Real-Time Meeting Agent: `realtime_meeting.py` service + `api/meeting.py` WebSocket + REST endpoints. `LiveMeetingSession` model. Re-litigation + forming decision + action-item detection during live sessions. Post-session full AI summary stored in knowledge base. Frontend `/meeting` page with real-time alert feed and summary panel. |
 | 2026-04-07 | Frontend: New leafy-green auth/landing page (pitch-premium layout), `/features` marketing page, `/docs` documentation page, shared `PublicNav` component; middleware + LayoutWrapper updated for public routes |
 | 2026-04-07 | No-Index Zones: `ExclusionRule` model, admin CRUD API (`/api/admin/exclusion-rules`), `exclusion_service.py` with in-memory cache, enforced in Drive/Slack/ClickUp ingestion pipelines, frontend No-Index Zones tab |
 | 2026-04-07 | Version Awareness: `doc_status` field on Document + Qdrant payload, auto-detection during Drive ingestion (draft/in_review/finalized heuristics), drafts penalized 0.6x in search, LLM prompts label draft sources |
