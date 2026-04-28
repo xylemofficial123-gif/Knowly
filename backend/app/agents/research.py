@@ -226,8 +226,8 @@ class ResearchAgent(BaseAgent):
                 + "\n"
             )
 
-        # Fetch relevant decision history (including reversals)
-        decision_history = self._get_decision_context(context.original_query)
+        # Fetch relevant decision history (including reversals), ACL-filtered.
+        decision_history = self._get_decision_context(context.original_query, context.user_email)
 
         # Synthesize across all results
         current_dt = format_ist(now_ist())
@@ -307,10 +307,15 @@ class ResearchAgent(BaseAgent):
         return angles[:3]  # Limit to 3 angles total to save embeddings calls too
 
     @staticmethod
-    def _get_decision_context(query: str) -> str:
-        """Fetch relevant decisions including reversal history for RAG context."""
+    def _get_decision_context(query: str, user_email: str = "") -> str:
+        """Fetch relevant decisions including reversal history for RAG context.
+
+        Filters by ACL so a user cannot see decisions extracted from sources
+        they don't have access to (e.g. a private leadership meeting).
+        """
         from app.core.database import SessionLocal
         from app.models import DecisionRecord
+        from app.core.acl import user_can_see_chunk
 
         db = SessionLocal()
         try:
@@ -320,6 +325,10 @@ class ResearchAgent(BaseAgent):
                 .limit(100)
                 .all()
             )
+            if not decisions:
+                return ""
+
+            decisions = [d for d in decisions if user_can_see_chunk(user_email, list(d.acl or []))]
             if not decisions:
                 return ""
 

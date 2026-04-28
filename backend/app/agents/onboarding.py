@@ -115,8 +115,8 @@ class OnboardingAgent(BaseAgent):
                 }
                 all_chunks.append(chunk_id)
 
-        # Get relevant decisions from the database
-        decisions_text = self._get_relevant_decisions(query)
+        # Get relevant decisions from the database, ACL-filtered.
+        decisions_text = self._get_relevant_decisions(query, context.user_email)
 
         if not sources_text and not decisions_text:
             if acl_blocked_count > 0:
@@ -176,8 +176,14 @@ class OnboardingAgent(BaseAgent):
             confidence=0.7 if source_counter > 3 else 0.5,
         )
 
-    def _get_relevant_decisions(self, query: str) -> str:
-        """Fetch decisions related to the query topic, including reversal history."""
+    def _get_relevant_decisions(self, query: str, user_email: str = "") -> str:
+        """Fetch decisions related to the query topic, including reversal history.
+
+        ACL-filtered: a new hire onboarding shouldn't see decisions from
+        meetings/channels they don't have access to.
+        """
+        from app.core.acl import user_can_see_chunk
+
         db = SessionLocal()
         try:
             # Get all decisions (active + superseded) and check relevance
@@ -188,6 +194,10 @@ class OnboardingAgent(BaseAgent):
                 .all()
             )
 
+            if not decisions:
+                return ""
+
+            decisions = [d for d in decisions if user_can_see_chunk(user_email, list(d.acl or []))]
             if not decisions:
                 return ""
 

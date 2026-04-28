@@ -130,6 +130,7 @@ def process_decision(decision: dict, chunk: Chunk, db: Session):
             status="active",
             source_chunk_ids=[str(chunk.id)],
             participants=[],
+            acl=list(chunk.acl or []),
             decided_at=chunk.created_at or datetime.datetime.utcnow(),
         )
         db.add(record)

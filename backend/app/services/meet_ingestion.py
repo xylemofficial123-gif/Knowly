@@ -251,13 +251,19 @@ def _build_enriched_text(
     return "\n".join(parts)
 
 
-def _store_action_items(summary_data: dict, meeting_title: str, source_url: str):
+def _store_action_items(
+    summary_data: dict,
+    meeting_title: str,
+    source_url: str,
+    attendees: list[str] | None = None,
+):
     """Store high-priority action items in the review queue for visibility."""
     from app.core.database import SessionLocal
     from app.models.review_queue import ReviewQueueItem
 
     actions = summary_data.get("action_items", [])
     decisions = summary_data.get("key_decisions", [])
+    meeting_attendees = list(attendees or [])
 
     db = SessionLocal()
     try:
@@ -276,6 +282,7 @@ def _store_action_items(summary_data: dict, meeting_title: str, source_url: str)
                 )
                 db.add(item)
 
+        meeting_acl = list(meeting_attendees) if meeting_attendees else ["public"]
         for dec in decisions:
             from app.models import DecisionRecord
             import datetime
@@ -287,6 +294,7 @@ def _store_action_items(summary_data: dict, meeting_title: str, source_url: str)
                 status="active",
                 source_chunk_ids=[],
                 participants=[dec.get("who", "")],
+                acl=meeting_acl,
                 decided_at=datetime.datetime.utcnow(),
             )
             db.add(record)
@@ -398,9 +406,64 @@ def ingest_meet_transcript(file_info: dict) -> dict:
         )
 
     # Store action items and decisions in the review queue / decision records
-    _store_action_items(summary_data, title, url)
+    _store_action_items(summary_data, title, url, attendees=attendees)
+
+    # Ghost Documentation: ping the meeting owner on Slack to confirm the
+    # decisions extracted from this transcript should be officially recorded.
+    # This is the PRD's "verbal decision → scribe" flow. Auto-saves above are
+    # kept as a fallback in case the owner never responds.
+    _maybe_send_meet_ghost_prompts(
+        owner_email=metadata.get("owner_email", ""),
+        decisions=summary_data.get("key_decisions", []),
+        chunk_id=f"meet:{file_id}",
+        source_url=url,
+        acl=acl,
+    )
 
     return summary_data
+
+
+def _maybe_send_meet_ghost_prompts(
+    owner_email: str,
+    decisions: list,
+    chunk_id: str,
+    source_url: str,
+    acl: list,
+):
+    if not owner_email or not decisions:
+        return
+    try:
+        from app.services.ghost_docs import (
+            slack_email_to_user_id,
+            send_ghost_doc_prompt,
+        )
+    except Exception as e:
+        logger.warning(f"Ghost docs import failed (non-fatal): {e}")
+        return
+
+    slack_id = slack_email_to_user_id(owner_email)
+    if not slack_id:
+        logger.info(
+            f"Skipping ghost-doc prompt for {owner_email}: no Slack mapping "
+            f"(missing token or user not in workspace)"
+        )
+        return
+
+    for dec in decisions:
+        text = (dec.get("decision") or "").strip()
+        if not text:
+            continue
+        send_ghost_doc_prompt(
+            slack_id,
+            {
+                "decision": text,
+                "rationale": dec.get("context", "") or dec.get("rationale", ""),
+                "options_considered": [],
+                "acl_override": list(acl or []),
+            },
+            chunk_id,
+            source_url,
+        )
 
 
 def ingest_drive_transcripts(user_email: str = None) -> int:
@@ -580,7 +643,7 @@ def ingest_transcript(content: str, title: str, url: str, attendees: list[str], 
         extra_metadata=metadata,
     )
 
-    _store_action_items(summary_data, title, url)
+    _store_action_items(summary_data, title, url, attendees=attendees)
 
     logger.info(f"Ingested transcript '{title}' with {len(turns)} turns")
     return summary_data

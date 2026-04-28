@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-04-28 (Removed Real-Time Meeting Agent — misaligned with PRD's Ghost Documentation intent)
+> **Last updated**: 2026-04-28 (Ghost Documentation: ACL on DecisionRecord + Meet ingestion fires Slack ghost-doc prompts to meeting owner)
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -96,7 +96,8 @@ FastAPI Backend
 | Meeting isolation | DONE | Groups chunks by title, parses dates, returns only chunks from the most recent matching meeting |
 | Decision extraction | DONE | AI identifies decisions, routes by confidence (≥0.75 auto-save, 0.50-0.74 review queue) |
 | Re-litigation detection | DONE | Cosine similarity ≥0.82 against active decisions |
-| Ghost documentation | DONE | Detects informal decisions, prompts users to confirm |
+| Ghost documentation | DONE | Detects informal decisions, DMs the owner on Slack to confirm. Fires from (a) Slack messages → poster, (b) Google Meet transcripts → meeting owner via `users.lookupByEmail`. Approval writes a `DecisionRecord` with ACL inherited from the source chunk/meeting attendees. Participants stored as email (resolved via `users.info`), not Slack user ID. |
+| DecisionRecord ACL | DONE | `decision_records.acl` JSON column mirrors source chunk ACL. Filtered in user-facing reads: Research agent decision context, Onboarding agent decision context, `/api/admin/decisions` list (when `user_email` query param is supplied — frontend `/decisions` page passes it). System-level reads (re-litigation detector, drift detector, Meet discrepancy, reversal detection) intentionally see all decisions to do their job — alert delivery sites are still gated by the original chunk ACL. |
 | IST timestamps | DONE | All dates/times in DD/MM/YYYY IST (GMT+5:30) via `app/core/timezone.py` |
 | Speaker attribution | DONE | Meeting summaries attribute statements to specific people (who said what). LLM extracts `raised_by`, `assigned_by`, `other_contributors` per discussion point. |
 | Source-type boosting | DONE | Meet/transcript chunks boosted 1.3x, calendar chunks penalized 0.5x for meeting content queries |
@@ -446,7 +447,10 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
-| 2026-04-28 | Removed Real-Time Meeting Agent (deleted `realtime_meeting.py`, `api/meeting.py`, `LiveMeetingSession` model, frontend `/meeting` page, sidebar entry, router registration). The live WebSocket "scribe a meeting in progress" UI conflated with PRD's Ghost Documentation, which is async-over-ingested-transcripts and is already DONE via `app/services/ghost_docs.py`. Note: `live_meeting_sessions` Postgres table will linger as an orphan in already-deployed DBs — drop manually if desired. |
+| 2026-04-28 | Ghost Documentation now fires from Google Meet ingestion (`_maybe_send_meet_ghost_prompts` in `meet_ingestion.py`): for each extracted decision, looks up the meeting owner's Slack ID via `users.lookupByEmail` and DMs them an approve/reject prompt with the meeting attendees ACL embedded in the callback. Closes the PRD gap where verbal-decision capture was Slack-only. |
+| 2026-04-28 | DecisionRecord ACL: added `decision_records.acl` JSON column (+ migration). All seven write sites set ACL: decision_extractor (chunk.acl), ghost_docs.handle_ghost_doc_approve (chunk.acl or callback override), meet_ingestion._store_action_items (attendees), admin.approve_review (source chunk acl), admin.reverse_decision (inherits from old), main.py /decision Slack command (public). User-facing reads filter via `user_can_see_chunk`: Research._get_decision_context, Onboarding._get_relevant_decisions, `GET /api/admin/decisions` (frontend `/decisions` page passes user_email). |
+| 2026-04-28 | Ghost-doc participants normalized to email: `handle_ghost_doc_approve` and `/decision` Slack command resolve Slack user_id → email via `users.info` before writing `DecisionRecord.participants`. Falls back to raw Slack ID if lookup fails (no token, etc.). |
+| 2026-04-28 | Removed Real-Time Meeting Agent (deleted `realtime_meeting.py`, `api/meeting.py`, `LiveMeetingSession` model, frontend `/meeting` page, sidebar entry, router registration). The live WebSocket "scribe a meeting in progress" UI conflated with PRD's Ghost Documentation, which is async-over-ingested-transcripts. Note: `live_meeting_sessions` Postgres table will linger as an orphan in already-deployed DBs — drop manually if desired. |
 | 2026-04-16 | Real-Time Meeting Agent: `realtime_meeting.py` service + `api/meeting.py` WebSocket + REST endpoints. `LiveMeetingSession` model. (REMOVED 2026-04-28 — see above.) |
 | 2026-04-07 | Frontend: New leafy-green auth/landing page (pitch-premium layout), `/features` marketing page, `/docs` documentation page, shared `PublicNav` component; middleware + LayoutWrapper updated for public routes |
 | 2026-04-07 | No-Index Zones: `ExclusionRule` model, admin CRUD API (`/api/admin/exclusion-rules`), `exclusion_service.py` with in-memory cache, enforced in Drive/Slack/ClickUp ingestion pipelines, frontend No-Index Zones tab |

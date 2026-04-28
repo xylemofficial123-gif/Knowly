@@ -46,7 +46,10 @@ class DecisionRecord(Base):
     options_considered = Column(JSON, default=list)
     status = Column(String, default="active")  # active, superseded
     source_chunk_ids = Column(JSON, default=list)
-    participants = Column(JSON, default=list)
+    participants = Column(JSON, default=list)  # emails (preferred) — legacy rows may hold Slack user IDs
+    # ACL list using the same format as Document/Chunk (public | group:<id> | user:<email> | <email>).
+    # Empty list means public for backward-compat with rows written before this column existed.
+    acl = Column(JSON, default=list)
     decided_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     # Decision reversal tracking

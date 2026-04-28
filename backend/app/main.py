@@ -269,6 +269,9 @@ if slack_bot_token:
 
         user_id = command.get("user_id", "")
 
+        from app.services.ghost_docs import _slack_user_id_to_email
+        author_email = _slack_user_id_to_email(user_id) or user_id
+
         db = SessionLocal()
         try:
             record = DecisionRecord(
@@ -277,7 +280,11 @@ if slack_bot_token:
                 options_considered=[],
                 status="active",
                 source_chunk_ids=[],
-                participants=[user_id],
+                participants=[author_email],
+                # /decision is invoked from a Slack channel by a member; default
+                # to public so the recorded decision is visible the same way the
+                # discussion in the channel was.
+                acl=["public"],
                 decided_at=datetime.datetime.utcnow(),
             )
             db.add(record)

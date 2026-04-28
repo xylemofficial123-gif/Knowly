@@ -83,6 +83,16 @@ def approve_review(item_id: str):
         if item.status != "pending":
             raise HTTPException(status_code=400, detail=f"Item already {item.status}")
 
+        # Inherit ACL from the source chunk if we have one. Reviewer-approved
+        # items without a source chunk are admin-curated → mark public.
+        source_acl: list = []
+        if item.source_chunk_id:
+            src_chunk = db.query(Chunk).filter(Chunk.id == item.source_chunk_id).first()
+            if src_chunk and src_chunk.acl:
+                source_acl = list(src_chunk.acl)
+        if not source_acl:
+            source_acl = ["public"]
+
         record = DecisionRecord(
             decision=item.proposed_decision,
             rationale=item.proposed_rationale,
@@ -90,6 +100,7 @@ def approve_review(item_id: str):
             status="active",
             source_chunk_ids=[item.source_chunk_id] if item.source_chunk_id else [],
             participants=[],
+            acl=source_acl,
             decided_at=item.created_at or datetime.datetime.utcnow(),
         )
         db.add(record)
@@ -244,14 +255,25 @@ def get_feedback(limit: int = 50):
 # --- Decisions ---
 
 @router.get("/decisions")
-def get_decisions(status: str = "all", limit: int = 50):
-    """List decisions with reversal chain info."""
+def get_decisions(status: str = "all", limit: int = 50, user_email: str = ""):
+    """List decisions with reversal chain info.
+
+    The decision log is reachable from the user-facing sidebar, so ACL-filter
+    by `user_email` when provided. Admins (per acl.user_can_see_chunk) bypass
+    the filter automatically.
+    """
+    from app.core.acl import user_can_see_chunk
+
     db = SessionLocal()
     try:
         query = db.query(DecisionRecord).order_by(DecisionRecord.decided_at.desc())
         if status != "all":
             query = query.filter(DecisionRecord.status == status)
-        decisions = query.limit(limit).all()
+        decisions = query.limit(limit * 2 if user_email else limit).all()
+
+        if user_email:
+            decisions = [d for d in decisions if user_can_see_chunk(user_email, list(d.acl or []))]
+        decisions = decisions[:limit]
 
         return {
             "items": [
@@ -356,7 +378,8 @@ def reverse_decision(decision_id: str, req: ReversalRequest):
         if old_decision.status != "active":
             raise HTTPException(status_code=400, detail=f"Decision is already {old_decision.status}")
 
-        # Create new decision
+        # Create new decision — inherit ACL from the decision being reversed so
+        # the new record has the same audience as the original.
         new_record = DecisionRecord(
             decision=req.new_decision,
             rationale=req.rationale,
@@ -364,6 +387,7 @@ def reverse_decision(decision_id: str, req: ReversalRequest):
             status="active",
             source_chunk_ids=old_decision.source_chunk_ids or [],
             participants=old_decision.participants or [],
+            acl=list(old_decision.acl or []) or ["public"],
             decided_at=datetime.datetime.utcnow(),
         )
         db.add(new_record)

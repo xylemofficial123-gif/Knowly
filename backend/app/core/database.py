@@ -28,6 +28,7 @@ def run_migrations():
         "ALTER TABLE oauth_connections ADD COLUMN IF NOT EXISTS workspace_id VARCHAR",
         "ALTER TABLE oauth_connections ADD COLUMN IF NOT EXISTS connected_by VARCHAR",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_status VARCHAR DEFAULT 'unknown'",
+        "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS acl JSON DEFAULT '[]'::json",
     ]
     with engine.connect() as conn:
         for sql in migrations:

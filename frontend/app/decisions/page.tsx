@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -38,6 +39,8 @@ function formatDate(iso: string) {
 }
 
 export default function DecisionsPage() {
+  const { user } = useUser();
+  const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
   const [data, setData] = useState<DecisionList | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "superseded">("all");
   const [loading, setLoading] = useState(true);
@@ -48,13 +51,14 @@ export default function DecisionsPage() {
 
   const fetchDecisions = (status = filter) => {
     setLoading(true);
-    fetch(`${API_URL}/api/admin/decisions?status=${status}&limit=100`)
+    const url = `${API_URL}/api/admin/decisions?status=${status}&limit=100${userEmail ? `&user_email=${encodeURIComponent(userEmail)}` : ""}`;
+    fetch(url)
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchDecisions(filter); }, [filter]);
+  useEffect(() => { fetchDecisions(filter); }, [filter, userEmail]);
 
   const triggerExtraction = async () => {
     setExtracting(true);
