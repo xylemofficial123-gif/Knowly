@@ -16,7 +16,6 @@ from app.api.ingestion import router as ingestion_router
 from app.api.users import router as users_router
 from app.api.guardian import router as guardian_router
 from app.api.oauth import router as oauth_router
-from app.api.meeting import router as meeting_router
 from app.core.database import SessionLocal
 from app.models import OAuthConnection
 
@@ -353,7 +352,6 @@ app.include_router(ingestion_router)
 app.include_router(users_router)
 app.include_router(guardian_router)
 app.include_router(oauth_router)
-app.include_router(meeting_router)
 
 
 # Slack endpoints (only if bot configured)

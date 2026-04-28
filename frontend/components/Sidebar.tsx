@@ -18,7 +18,6 @@ const navItems: SidebarItem[] = [
   { id: "decisions", name: "Decision log", icon: "📜", href: "/decisions" },
   { id: "ingest", name: "Ingest sources", icon: "⚡", href: "/ingest" },
   { id: "activity", name: "Activity log", icon: "🕒", href: "/activity" },
-  { id: "meeting", name: "Live meeting", icon: "🎙️", href: "/meeting" },
 ];
 
 export default function Sidebar() {

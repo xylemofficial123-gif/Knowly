@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-04-16 (Real-Time Meeting Agent)
+> **Last updated**: 2026-04-28 (Removed Real-Time Meeting Agent — misaligned with PRD's Ghost Documentation intent)
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -79,7 +79,6 @@ FastAPI Backend
 | Orchestrator | DONE | Agent selection, session management, multi-turn conversation support |
 | Guardian Agent | DONE | Cross-source redundancy prevention + drift detection — embeds trigger text, searches all sources, ACL filters, LLM-synthesises alert, checks for decision contradictions, delivers as Slack thread reply or ClickUp comment, logs to `guardian_alerts` table |
 | Project Manager Agent | NOT STARTED | Action item tracking, follow-up reminders, weekly status reports |
-| Real-Time Meeting Agent | DONE | WebSocket live transcript streaming, real-time re-litigation + decision/action-item detection, post-session AI summary stored in knowledge base. WS: `/api/meeting/ws/{id}`, REST: `/api/meeting/start|end|sessions`. Frontend: `/meeting` page. |
 
 ### Intelligence Features
 
@@ -255,18 +254,9 @@ User action (Slack message / ClickUp task / Drive doc edit)
 
 **Prerequisites**: Slack bot connected (for DM delivery), ClickUp connected (for task creation)
 
-### Priority 5 — Real-Time Meeting Agent
+### ~~Priority 5 — Real-Time Meeting Agent~~ DROPPED
 
-**Goal**: Monitor meetings in real-time and provide live context/alerts.
-
-**What it does**:
-- Listens to live meeting transcription stream
-- Detects re-litigation in real-time: "This was decided on Jan 15"
-- Suggests relevant docs/decisions during discussion
-- Auto-generates live action items
-- Post-meeting: immediately processes and syncs
-
-**Prerequisites**: WebSocket support, streaming LLM, live transcription API access
+Removed 2026-04-28. A WebSocket "live meeting" UI was built but misread the PRD: the PRD's "Ghost Documentation" feature is an *async scribe over already-ingested transcripts* (Slack DM with approve/reject), not a live mid-meeting copilot. Ghost Documentation is already DONE via `app/services/ghost_docs.py` + `workers/tasks.py`. Mid-meeting live context is not a PRD goal.
 
 ### Priority 6 — Authorization & User Identity
 
@@ -456,7 +446,8 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
-| 2026-04-16 | Real-Time Meeting Agent: `realtime_meeting.py` service + `api/meeting.py` WebSocket + REST endpoints. `LiveMeetingSession` model. Re-litigation + forming decision + action-item detection during live sessions. Post-session full AI summary stored in knowledge base. Frontend `/meeting` page with real-time alert feed and summary panel. |
+| 2026-04-28 | Removed Real-Time Meeting Agent (deleted `realtime_meeting.py`, `api/meeting.py`, `LiveMeetingSession` model, frontend `/meeting` page, sidebar entry, router registration). The live WebSocket "scribe a meeting in progress" UI conflated with PRD's Ghost Documentation, which is async-over-ingested-transcripts and is already DONE via `app/services/ghost_docs.py`. Note: `live_meeting_sessions` Postgres table will linger as an orphan in already-deployed DBs — drop manually if desired. |
+| 2026-04-16 | Real-Time Meeting Agent: `realtime_meeting.py` service + `api/meeting.py` WebSocket + REST endpoints. `LiveMeetingSession` model. (REMOVED 2026-04-28 — see above.) |
 | 2026-04-07 | Frontend: New leafy-green auth/landing page (pitch-premium layout), `/features` marketing page, `/docs` documentation page, shared `PublicNav` component; middleware + LayoutWrapper updated for public routes |
 | 2026-04-07 | No-Index Zones: `ExclusionRule` model, admin CRUD API (`/api/admin/exclusion-rules`), `exclusion_service.py` with in-memory cache, enforced in Drive/Slack/ClickUp ingestion pipelines, frontend No-Index Zones tab |
 | 2026-04-07 | Version Awareness: `doc_status` field on Document + Qdrant payload, auto-detection during Drive ingestion (draft/in_review/finalized heuristics), drafts penalized 0.6x in search, LLM prompts label draft sources |
