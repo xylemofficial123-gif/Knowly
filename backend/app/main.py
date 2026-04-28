@@ -17,6 +17,8 @@ from app.api.users import router as users_router
 from app.api.guardian import router as guardian_router
 from app.api.oauth import router as oauth_router
 from app.api.meeting import router as meeting_router
+from app.core.database import SessionLocal
+from app.models import OAuthConnection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,14 +26,37 @@ logger = logging.getLogger(__name__)
 # --- Slack Bolt App (only if token configured) ---
 slack_handler = None
 
-if settings.SLACK_BOT_TOKEN:
+def _resolve_slack_bot_token() -> str:
+    """Return a usable Slack bot token from env or OAuth DB storage."""
+    if settings.SLACK_BOT_TOKEN:
+        return settings.SLACK_BOT_TOKEN
+
+    db = SessionLocal()
+    try:
+        conn = db.query(OAuthConnection).filter(
+            OAuthConnection.id.like("slack:%")
+        ).first()
+        if not conn:
+            conn = db.query(OAuthConnection).filter(
+                OAuthConnection.id == "slack"
+            ).first()
+        return (conn.access_token or "") if conn else ""
+    except Exception as e:
+        logger.warning(f"Could not load Slack token from DB during startup: {e}")
+        return ""
+    finally:
+        db.close()
+
+
+slack_bot_token = _resolve_slack_bot_token()
+
+if slack_bot_token:
     from slack_bolt.async_app import AsyncApp as SlackApp
     from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler as SlackRequestHandler
 
     slack_app = SlackApp(
-        token=settings.SLACK_BOT_TOKEN,
+        token=slack_bot_token,
         signing_secret=settings.SLACK_SIGNING_SECRET,
-        token_verification_enabled=bool(settings.SLACK_SIGNING_SECRET),
     )
 
     @slack_app.error
@@ -92,7 +117,7 @@ if settings.SLACK_BOT_TOKEN:
             user_email = ""
             try:
                 from slack_sdk.web.async_client import AsyncWebClient
-                wc = AsyncWebClient(token=settings.SLACK_BOT_TOKEN)
+                wc = AsyncWebClient(token=slack_bot_token)
                 info = await wc.users_info(user=user)
                 user_email = info.get("user", {}).get("profile", {}).get("email", "")
             except Exception:
@@ -166,7 +191,7 @@ if settings.SLACK_BOT_TOKEN:
         user_email = "demo@yourcompany.com"
         try:
             from slack_sdk.web.async_client import AsyncWebClient
-            client = AsyncWebClient(token=settings.SLACK_BOT_TOKEN)
+            client = AsyncWebClient(token=slack_bot_token)
             user_info = await client.users_info(user=user_id)
             user_email = user_info.get("user", {}).get("profile", {}).get("email", "") or user_email
         except Exception:
@@ -291,7 +316,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Knowledge Agent API...")
     create_tables()
     run_migrations()
-    ensure_collection()
+    try:
+        ensure_collection()
+    except Exception as e:
+        # Don't fail API startup if vector DB is temporarily unavailable.
+        logger.warning(f"Qdrant initialization skipped during startup: {e}")
     yield
     logger.info("Shutting down Knowledge Agent API...")
 
@@ -300,8 +329,12 @@ app = FastAPI(title="Knowledge Agent API", version="1.0.0", lifespan=lifespan)
 
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "https://xylem-memory.vercel.app",
-    *([o.strip() for o in settings.EXTRA_CORS_ORIGINS.split(",") if o.strip()] if hasattr(settings, "EXTRA_CORS_ORIGINS") and settings.EXTRA_CORS_ORIGINS else []),
+    settings.FRONTEND_URL,
+    *(
+        [o.strip() for o in settings.EXTRA_CORS_ORIGINS.split(",") if o.strip()]
+        if hasattr(settings, "EXTRA_CORS_ORIGINS") and settings.EXTRA_CORS_ORIGINS
+        else []
+    ),
 ]
 
 app.add_middleware(
