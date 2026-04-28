@@ -315,7 +315,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Knowledge Agent API...")
     create_tables()
     run_migrations()
-    ensure_collection()
+    try:
+        ensure_collection()
+    except Exception as e:
+        # Don't fail API startup if vector DB is temporarily unavailable.
+        logger.warning(f"Qdrant initialization skipped during startup: {e}")
     yield
     logger.info("Shutting down Knowledge Agent API...")
 
