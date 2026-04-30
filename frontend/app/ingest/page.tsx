@@ -115,6 +115,8 @@ export default function AdminPage() {
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [slackStatus, setSlackStatus] = useState<SlackStatus | null>(null);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const [disconnectingSlack, setDisconnectingSlack] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
   const [feedbackList, setFeedbackList] = useState<FeedbackItem[]>([]);
@@ -275,7 +277,24 @@ export default function AdminPage() {
   };
 
   const fetchAvailableFolders = async () => {
+    // Avoid noisy 500s when Drive is disabled or Google isn't connected.
+    const driveEnabled = Boolean(settings?.enabled_sources?.includes("drive"));
+    if (!driveEnabled) {
+      setAvailableFolders([]);
+      return;
+    }
+
     try {
+      const statusUrl = currentUserEmail
+        ? `${API_URL}/api/oauth/google/status?user_email=${encodeURIComponent(currentUserEmail)}`
+        : `${API_URL}/api/oauth/google/status`;
+      const statusRes = await fetch(statusUrl);
+      const statusData = await statusRes.json();
+      if (!statusData?.connected) {
+        setAvailableFolders([]);
+        return;
+      }
+
       const url = currentUserEmail
         ? `${API_URL}/api/ingest/drive/folders?user_email=${encodeURIComponent(currentUserEmail)}`
         : `${API_URL}/api/ingest/drive/folders`;
@@ -536,12 +555,15 @@ export default function AdminPage() {
   };
 
   const disconnectSlack = async () => {
-    if (!currentUserEmail) return;
+    if (!currentUserEmail || disconnectingSlack) return;
     try {
+      setDisconnectingSlack(true);
       await fetch(`${API_URL}/api/oauth/slack/disconnect?user_email=${encodeURIComponent(currentUserEmail)}`, { method: "DELETE" });
       fetchSlackStatus();
     } catch (e) {
       console.error("Failed to disconnect Slack:", e);
+    } finally {
+      setDisconnectingSlack(false);
     }
   };
 
@@ -552,7 +574,6 @@ export default function AdminPage() {
     else if (tab === "metrics") fetchMetrics();
     else if (tab === "ingestion") {
       fetchSettings();
-      fetchAvailableFolders();
     } else if (tab === "users") fetchUsers();
     else if (tab === "groups") fetchGroups();
     else if (tab === "upload") fetchGroups();
@@ -564,6 +585,10 @@ export default function AdminPage() {
       );
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (tab === "ingestion") fetchAvailableFolders();
+  }, [tab, settings?.enabled_sources, currentUserEmail]);
 
   // Handle OAuth callback redirect params
   useEffect(() => {
@@ -919,9 +944,10 @@ export default function AdminPage() {
                 <div className="col-span-2 mt-1">
                   <button
                     onClick={disconnectSlack}
-                    className="px-4 py-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition"
+                    disabled={disconnectingSlack}
+                    className="px-4 py-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Disconnect
+                    {disconnectingSlack ? "Disconnecting..." : "Disconnect"}
                   </button>
                 </div>
               </div>
@@ -1375,20 +1401,14 @@ export default function AdminPage() {
           {/* Action Footer */}
           <div className="flex justify-start pt-4">
             <button
-                onClick={() => {
-                    fetch(`${API_URL}/api/ingest/trigger`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ source: "drive" })
-                    });
-                    alert("Ingestion triggered! Check backend logs for progress.");
-                }}
-                className="px-6 py-3 bg-gray-800 text-white rounded-xl text-sm font-medium hover:bg-black transition-colors shadow-lg flex items-center gap-2"
+                onClick={triggerSync}
+                disabled={syncing}
+                className="px-6 py-3 bg-gray-800 text-white rounded-xl text-sm font-medium hover:bg-black transition-colors shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Trigger Sync Now
+              {syncing ? "Syncing..." : "Trigger Sync Now"}
             </button>
           </div>
         </div>
@@ -1866,3 +1886,33 @@ function RoleBadge({ role, className = "" }: { role: string; className?: string 
     </span>
   );
 }
+  const triggerSync = async () => {
+    if (!settings || syncing) return;
+    const enabled = settings.enabled_sources || [];
+    const source =
+      enabled.includes("slack") ? "slack" :
+      enabled.includes("clickup") ? "clickup" :
+      enabled.includes("meet") ? "meet" :
+      enabled.includes("calendar") ? "calendar" :
+      enabled.includes("drive") ? "drive" :
+      "all";
+
+    const payload: { source: string; folder_ids?: string[] } = { source };
+    if (source === "drive" && settings.google_drive_folder_ids?.length) {
+      payload.folder_ids = settings.google_drive_folder_ids;
+    }
+
+    try {
+      setSyncing(true);
+      await fetch(`${API_URL}/api/ingest/trigger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      alert(`Ingestion triggered for ${source}. Check backend logs for progress.`);
+    } catch (e) {
+      console.error("Failed to trigger ingestion:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };

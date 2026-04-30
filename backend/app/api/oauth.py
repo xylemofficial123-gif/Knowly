@@ -444,6 +444,18 @@ def slack_status(user_email: str = ""):
     conn = None
     if user_email:
         conn = get_connection(f"slack:{user_email}")
+        # For user-scoped status checks, avoid env-token fallback so UI reflects true
+        # connect/disconnect state for that user.
+        if conn:
+            return {
+                "connected":       True,
+                "workspace_name":  conn.workspace_name,
+                "workspace_id":    conn.workspace_id,
+                "connected_by":    conn.connected_by,
+                "connected_at":    conn.connected_at.isoformat() if conn.connected_at else None,
+            }
+        return {"connected": False}
+
     if not conn:
         # Check for any slack connection (workspace is shared)
         from app.core.database import SessionLocal
