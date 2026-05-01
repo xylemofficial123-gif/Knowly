@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
 
     CLERK_SECRET_KEY: str = ""
+    CLERK_API_BASE: str = "https://api.clerk.com"
     BYPASS_ACL: bool = False
     EXTRA_CORS_ORIGINS: str = ""
 

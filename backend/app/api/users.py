@@ -18,15 +18,57 @@ Endpoints:
 import logging
 import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from sqlalchemy import func
 from pydantic import BaseModel
 
 from app.core.database import SessionLocal
 from app.core.acl import invalidate_user_cache
+from app.core.auth import require_admin, get_current_user_email
 from app.models import User, Group, GroupMembership
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["users-groups"])
+BOOTSTRAP_ADMIN_EMAILS = {"chaitranarem@gmail.com", "sachin.kurup@seedlinglabs.com"}
+
+
+def ensure_bootstrap_admins() -> None:
+    """Ensure mandatory admin accounts exist and stay admin."""
+    db = SessionLocal()
+    try:
+        for email in BOOTSTRAP_ADMIN_EMAILS:
+            norm = email.strip().lower()
+            user = db.query(User).filter(func.lower(User.email) == norm).first()
+            if not user:
+                user = User(
+                    email=norm,
+                    display_name=norm.split("@")[0],
+                    role="admin",
+                )
+                db.add(user)
+            else:
+                user.role = "admin"
+            invalidate_user_cache(norm)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _get_user_role(db, email: str) -> str:
+    user = db.query(User).filter(func.lower(User.email) == email.strip().lower()).first()
+    return (user.role if user else "member").strip().lower()
+
+
+def _is_group_admin_for_group(db, actor_email: str, group_id: str) -> bool:
+    membership = (
+        db.query(GroupMembership)
+        .filter(
+            GroupMembership.group_id == group_id,
+            func.lower(GroupMembership.user_email) == actor_email.strip().lower(),
+        )
+        .first()
+    )
+    return bool(membership and (membership.role or "").strip().lower() == "group_admin")
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
@@ -84,7 +126,7 @@ def list_users(limit: int = 100, offset: int = 0):
 
 
 @router.post("/users", status_code=201)
-def create_user(body: UserCreate):
+def create_user(body: UserCreate, actor_email: str = Depends(require_admin)):
     db = SessionLocal()
     try:
         existing = db.query(User).filter(User.email == body.email).first()
@@ -132,7 +174,7 @@ def get_user(email: str):
 
 
 @router.put("/users/{email:path}")
-def update_user(email: str, body: UserUpdate):
+def update_user(email: str, body: UserUpdate, actor_email: str = Depends(require_admin)):
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.email == email).first()
@@ -142,6 +184,10 @@ def update_user(email: str, body: UserUpdate):
         if body.role is not None:
             if body.role not in ("admin", "group_admin", "member"):
                 raise HTTPException(status_code=400, detail="role must be admin, group_admin, or member")
+            if email.strip().lower() == actor_email.strip().lower() and body.role != "admin":
+                raise HTTPException(status_code=400, detail="Admins cannot change their own role")
+            if email.strip().lower() in BOOTSTRAP_ADMIN_EMAILS and body.role != "admin":
+                raise HTTPException(status_code=400, detail="Bootstrap admin role cannot be downgraded")
             user.role = body.role
         if body.display_name is not None:
             user.display_name = body.display_name
@@ -155,9 +201,13 @@ def update_user(email: str, body: UserUpdate):
 
 
 @router.delete("/users/{email:path}", status_code=204)
-def delete_user(email: str):
+def delete_user(email: str, actor_email: str = Depends(require_admin)):
     db = SessionLocal()
     try:
+        if email.strip().lower() == actor_email.strip().lower():
+            raise HTTPException(status_code=400, detail="Admins cannot delete their own account")
+        if email.strip().lower() in BOOTSTRAP_ADMIN_EMAILS:
+            raise HTTPException(status_code=400, detail="Bootstrap admin account cannot be deleted")
         user = db.query(User).filter(User.email == email).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -193,7 +243,7 @@ def list_groups(limit: int = 100, offset: int = 0):
 
 
 @router.post("/groups", status_code=201)
-def create_group(body: GroupCreate):
+def create_group(body: GroupCreate, actor_email: str = Depends(require_admin)):
     db = SessionLocal()
     try:
         existing = db.query(Group).filter(Group.name == body.name).first()
@@ -203,22 +253,22 @@ def create_group(body: GroupCreate):
         group = Group(
             name=body.name,
             description=body.description,
-            created_by_email=body.created_by_email,
+            created_by_email=actor_email,
         )
         db.add(group)
         db.commit()
         db.refresh(group)
 
         # Auto-add creator as group_admin if provided
-        if body.created_by_email:
+        if actor_email:
             membership = GroupMembership(
-                user_email=body.created_by_email,
+                user_email=actor_email,
                 group_id=group.id,
                 role="group_admin",
             )
             db.add(membership)
             db.commit()
-            invalidate_user_cache(body.created_by_email)
+            invalidate_user_cache(actor_email)
 
         return {"id": str(group.id), "name": group.name}
     finally:
@@ -250,9 +300,16 @@ def get_group(group_id: str):
 
 
 @router.put("/groups/{group_id}")
-def update_group(group_id: str, body: GroupUpdate):
+def update_group(group_id: str, body: GroupUpdate, actor_email: str = Depends(get_current_user_email)):
     db = SessionLocal()
     try:
+        actor_role = _get_user_role(db, actor_email)
+        if actor_role not in ("admin", "group_admin"):
+            raise HTTPException(status_code=403, detail="Admin or group_admin role required")
+
+        if actor_role == "group_admin" and not _is_group_admin_for_group(db, actor_email, group_id):
+            raise HTTPException(status_code=403, detail="You can only manage groups where you are group_admin")
+
         group = db.query(Group).filter(Group.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -269,7 +326,7 @@ def update_group(group_id: str, body: GroupUpdate):
 
 
 @router.delete("/groups/{group_id}", status_code=204)
-def delete_group(group_id: str):
+def delete_group(group_id: str, actor_email: str = Depends(require_admin)):
     db = SessionLocal()
     try:
         group = db.query(Group).filter(Group.id == group_id).first()
@@ -309,9 +366,15 @@ def list_group_members(group_id: str):
 
 
 @router.post("/groups/{group_id}/members", status_code=201)
-def add_group_member(group_id: str, body: MemberAdd):
+def add_group_member(group_id: str, body: MemberAdd, actor_email: str = Depends(get_current_user_email)):
     db = SessionLocal()
     try:
+        actor_role = _get_user_role(db, actor_email)
+        if actor_role not in ("admin", "group_admin"):
+            raise HTTPException(status_code=403, detail="Admin or group_admin role required")
+        if actor_role == "group_admin" and not _is_group_admin_for_group(db, actor_email, group_id):
+            raise HTTPException(status_code=403, detail="You can only manage groups where you are group_admin")
+
         group = db.query(Group).filter(Group.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -355,9 +418,15 @@ def add_group_member(group_id: str, body: MemberAdd):
 
 
 @router.delete("/groups/{group_id}/members/{user_email:path}", status_code=204)
-def remove_group_member(group_id: str, user_email: str):
+def remove_group_member(group_id: str, user_email: str, actor_email: str = Depends(get_current_user_email)):
     db = SessionLocal()
     try:
+        actor_role = _get_user_role(db, actor_email)
+        if actor_role not in ("admin", "group_admin"):
+            raise HTTPException(status_code=403, detail="Admin or group_admin role required")
+        if actor_role == "group_admin" and not _is_group_admin_for_group(db, actor_email, group_id):
+            raise HTTPException(status_code=403, detail="You can only manage groups where you are group_admin")
+
         membership = (
             db.query(GroupMembership)
             .filter(GroupMembership.group_id == group_id, GroupMembership.user_email == user_email)

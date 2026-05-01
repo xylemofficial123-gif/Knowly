@@ -3,6 +3,7 @@ import json
 import logging
 import datetime
 import re
+from urllib.parse import quote
 from collections import Counter
 from typing import Optional
 
@@ -129,7 +130,12 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
             source = chunk.payload.get("source", "unknown")
             url = chunk.payload.get("url", "")
             title = chunk.payload.get("title", "")
+            source_id = chunk.payload.get("source_id", "")
             doc_id = chunk.payload.get("document_id")
+
+            # Backward compatibility: old upload rows may have empty URL.
+            if source == "upload" and not url and source_id:
+                url = f"{settings.BACKEND_URL}/api/ingest/uploaded/{quote(source_id, safe='')}"
 
             freshness = 0.5
             if doc_id:

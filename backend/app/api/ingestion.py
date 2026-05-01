@@ -1,11 +1,17 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from pydantic import BaseModel
 import logging
 import io
 from typing import Optional, List
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ingest", tags=["ingestion"])
+from app.core.auth import get_current_user_email
+from app.core.database import SessionLocal
+from app.core.acl import user_can_see_chunk
+from app.core.config import settings
+from app.models import Document
 
 
 class TriggerRequest(BaseModel):
@@ -130,11 +136,12 @@ def list_folders(user_email: str = ""):
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
-    user_email: str = Form(...),
+    user_email: str = Form(""),            # deprecated: identity comes from auth token
     scope: str = Form("private"),          # public | group | private
     group_id: str = Form(""),              # required when scope=group
     title: str = Form(""),
     shared_with: str = Form(""),           # comma-separated emails for private shares
+    actor_email: str = Depends(get_current_user_email),
 ):
     """
     Upload a document with explicit scope.
@@ -143,15 +150,19 @@ async def upload_document(
     - scope=group    → visible to all members of group_id
     - scope=private  → visible only to the uploader (+ any shared_with emails)
     """
+    from sqlalchemy import func
     from app.core.acl import build_acl, get_user_role
+    from app.core.database import SessionLocal
+    from app.models import GroupMembership
     from app.services.chunker import chunk_and_store
+    actor_email = (actor_email or "").strip().lower()
 
     # Validate scope
     if scope not in ("public", "group", "private"):
         raise HTTPException(status_code=400, detail="scope must be public, group, or private")
 
     # Only admins can set public scope
-    role = get_user_role(user_email)
+    role = get_user_role(actor_email)
     if scope == "public" and role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can upload public documents")
 
@@ -159,12 +170,27 @@ async def upload_document(
     if scope == "group":
         if not group_id:
             raise HTTPException(status_code=400, detail="group_id is required for group scope")
-        # group_admin or admin can upload for a group
+        # admin can upload to any group. group_admin can upload only for groups they manage.
         if role not in ("admin", "group_admin"):
             raise HTTPException(status_code=403, detail="Only admins or group admins can upload group documents")
+        if role == "group_admin":
+            db = SessionLocal()
+            try:
+                membership = (
+                    db.query(GroupMembership)
+                    .filter(
+                        GroupMembership.group_id == group_id,
+                        func.lower(GroupMembership.user_email) == actor_email,
+                    )
+                    .first()
+                )
+                if not membership or (membership.role or "").strip().lower() != "group_admin":
+                    raise HTTPException(status_code=403, detail="You can only upload to groups where you are group_admin")
+            finally:
+                db.close()
 
     extra_emails = [e.strip() for e in shared_with.split(",") if e.strip()] if shared_with else None
-    acl = build_acl(scope, user_email, group_id=group_id or None, extra_emails=extra_emails)
+    acl = build_acl(scope, actor_email, group_id=group_id or None, extra_emails=extra_emails)
 
     # Read file content
     content_bytes = await file.read()
@@ -189,17 +215,19 @@ async def upload_document(
     if not text.strip():
         raise HTTPException(status_code=400, detail="Could not extract text from the uploaded file")
 
-    source_id = f"upload:{user_email}:{filename}"
+    source_id = f"upload:{actor_email}:{filename}"
+    source_url = f"{settings.BACKEND_URL}/api/ingest/uploaded/{quote(source_id, safe='')}"
 
     chunk_and_store(
         source="upload",
         source_id=source_id,
         text=text,
-        url="",
+        url=source_url,
         acl=acl,
         title=filename,
         extra_metadata={
             "uploaded_by": user_email,
+            "requested_user_email": user_email.strip().lower() if user_email else "",
             "scope": scope,
             "group_id": group_id or None,
             "filename": filename,
@@ -207,11 +235,34 @@ async def upload_document(
         chunk_type="full_text",
     )
 
-    logger.info(f"Uploaded '{filename}' by {user_email} with scope={scope}, acl={acl}")
+    logger.info(f"Uploaded '{filename}' by {actor_email} with scope={scope}, acl={acl}")
     return {
         "status": "ok",
         "filename": filename,
         "scope": scope,
         "acl": acl,
-        "uploader": user_email,
+        "uploader": actor_email,
+        "source_url": source_url,
     }
+
+
+@router.get("/uploaded/{source_id:path}")
+def get_uploaded_document(source_id: str, actor_email: str = Depends(get_current_user_email)):
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).filter(Document.source_id == source_id, Document.source == "upload").first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Uploaded document not found")
+        if not user_can_see_chunk(actor_email, list(doc.acl or [])):
+            raise HTTPException(status_code=403, detail="You do not have access to this document")
+        return {
+            "title": doc.title or "Uploaded Document",
+            "source_id": doc.source_id,
+            "source": doc.source,
+            "acl": doc.acl or [],
+            "created_at": doc.created_at.isoformat() if doc.created_at else "",
+            "updated_at": doc.updated_at.isoformat() if doc.updated_at else "",
+            "content": doc.content or "",
+        }
+    finally:
+        db.close()
