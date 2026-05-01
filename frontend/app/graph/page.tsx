@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -31,16 +32,25 @@ function formatDate(iso: string) {
 }
 
 export default function GraphPage() {
+  const { getToken } = useAuth();
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/admin/graph`)
-      .then((r) => r.json())
-      .then(setData)
-      .finally(() => setLoading(false));
-  }, []);
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`${API_URL}/api/admin/graph`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json();
+        setData(json);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [getToken]);
 
   const totalDocs = data?.totals.docs ?? 0;
 

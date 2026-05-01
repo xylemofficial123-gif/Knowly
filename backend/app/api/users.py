@@ -17,6 +17,7 @@ Endpoints:
 
 import logging
 import datetime
+import uuid
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy import func
@@ -25,7 +26,7 @@ from pydantic import BaseModel
 from app.core.database import SessionLocal
 from app.core.acl import invalidate_user_cache
 from app.core.auth import require_admin, get_current_user_email
-from app.models import User, Group, GroupMembership
+from app.models import User, Group, GroupMembership, Document
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["users-groups"])
@@ -361,6 +362,133 @@ def list_group_members(group_id: str):
                 for m in memberships
             ],
         }
+    finally:
+        db.close()
+
+
+@router.get("/groups/{group_id}/documents")
+def list_group_documents(group_id: str, actor_email: str = Depends(get_current_user_email), limit: int = 100):
+    """
+    List documents scoped to this group (ACL contains `group:<group_id>`).
+    Access:
+      - admin: always allowed
+      - group members: allowed if they belong to this group
+      - others: forbidden
+    """
+    db = SessionLocal()
+    try:
+        group = db.query(Group).filter(Group.id == group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        actor_role = _get_user_role(db, actor_email)
+        if actor_role != "admin":
+            membership = (
+                db.query(GroupMembership)
+                .filter(
+                    GroupMembership.group_id == group_id,
+                    func.lower(GroupMembership.user_email) == actor_email.strip().lower(),
+                )
+                .first()
+            )
+            if not membership:
+                raise HTTPException(status_code=403, detail="You are not a member of this group")
+
+        acl_tag = f"group:{group_id}"
+        # NOTE: Document.acl is JSON (not JSONB) in our schema. JSON containment
+        # operators can be inconsistent across environments, so we fetch recent
+        # docs and filter ACL membership in Python for reliability.
+        candidates = (
+            db.query(Document)
+            .order_by(Document.updated_at.desc(), Document.created_at.desc())
+            .limit(max(limit * 5, 200))
+            .all()
+        )
+        docs = [d for d in candidates if acl_tag in list(d.acl or [])][:limit]
+        return {
+            "group_id": group_id,
+            "group_name": group.name,
+            "documents": [
+                {
+                    "id": str(d.id),
+                    "title": d.title or "Untitled",
+                    "source": d.source or "unknown",
+                    "url": d.url or "",
+                    "doc_status": d.doc_status or "unknown",
+                    "updated_at": d.updated_at.isoformat() if d.updated_at else "",
+                    "created_at": d.created_at.isoformat() if d.created_at else "",
+                }
+                for d in docs
+            ],
+            "total": len(docs),
+        }
+    finally:
+        db.close()
+
+
+@router.delete("/groups/{group_id}/documents/{document_id}", status_code=204)
+def delete_group_document(group_id: str, document_id: str, actor_email: str = Depends(get_current_user_email)):
+    """
+    Delete a group-scoped document.
+    Access:
+      - admin: allowed
+      - group_admin of this group: allowed
+      - others: forbidden
+    """
+    db = SessionLocal()
+    try:
+        group = db.query(Group).filter(Group.id == group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        actor_role = _get_user_role(db, actor_email)
+        if actor_role != "admin" and not _is_group_admin_for_group(db, actor_email, group_id):
+            raise HTTPException(status_code=403, detail="Only admin or this group's group_admin can delete documents")
+
+        try:
+            doc_uuid = uuid.UUID(document_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid document_id")
+
+        doc = db.query(Document).filter(Document.id == doc_uuid).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        acl_tag = f"group:{group_id}"
+        if acl_tag not in list(doc.acl or []):
+            raise HTTPException(status_code=403, detail="Document is not scoped to this group")
+
+        from app.models import Chunk
+        chunks = db.query(Chunk).filter(Chunk.document_id == doc_uuid).all()
+        embedding_ids = [c.embedding_id for c in chunks if c.embedding_id]
+
+        # Delete DB rows first
+        db.query(Chunk).filter(Chunk.document_id == doc_uuid).delete(synchronize_session=False)
+        db.delete(doc)
+        db.commit()
+
+        # Best-effort vector cleanup
+        if embedding_ids:
+            try:
+                from app.services.embeddings import qdrant, COLLECTION
+                from qdrant_client.models import PointIdsList
+                qdrant.delete(
+                    collection_name=COLLECTION,
+                    points_selector=PointIdsList(points=embedding_ids),
+                )
+            except Exception as e:
+                logger.warning(f"Qdrant vector deletion partial/failed for doc {document_id}: {e}")
+
+        # Clear Oracle answer cache so deleted content is not served from stale cache.
+        try:
+            import redis
+            from app.core.config import settings
+            rc = redis.from_url(settings.REDIS_URL, decode_responses=True)
+            keys = list(rc.scan_iter(match="oracle:*", count=1000))
+            if keys:
+                rc.delete(*keys)
+        except Exception as e:
+            logger.warning(f"Oracle cache invalidation failed after delete: {e}")
     finally:
         db.close()
 

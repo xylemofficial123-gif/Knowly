@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import logging
+
+from app.core.auth import get_current_user_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/oracle", tags=["oracle"])
@@ -13,7 +15,7 @@ class ChatMessage(BaseModel):
 
 class AskRequest(BaseModel):
     question: str
-    user_email: str = "demo@yourcompany.com"
+    user_email: str = ""
     session_id: str = ""
     history: list[ChatMessage] = []
 
@@ -46,7 +48,7 @@ class AgentResponse(BaseModel):
 
 
 @router.post("/ask", response_model=AgentResponse)
-def ask(req: AskRequest):
+def ask(req: AskRequest, actor_email: str = Depends(get_current_user_email)):
     """Main query endpoint — routes through the multi-agent system."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
@@ -59,7 +61,7 @@ def ask(req: AskRequest):
 
         result = agent_ask(
             req.question,
-            req.user_email,
+            actor_email,
             session_id=req.session_id,
             history=history,
         )
@@ -84,7 +86,7 @@ def ask(req: AskRequest):
 
 
 @router.post("/ask/simple", response_model=OracleResponse)
-def ask_simple(req: AskRequest):
+def ask_simple(req: AskRequest, actor_email: str = Depends(get_current_user_email)):
     """Legacy simple Oracle endpoint (single-search, no routing)."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
@@ -92,7 +94,7 @@ def ask_simple(req: AskRequest):
     try:
         from app.services.oracle import ask_oracle
 
-        result = ask_oracle(req.question, req.user_email)
+        result = ask_oracle(req.question, actor_email)
         return OracleResponse(**result)
     except Exception as e:
         logger.error(f"Oracle error: {e}")

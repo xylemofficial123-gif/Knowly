@@ -84,6 +84,15 @@ interface GroupRecord {
   member_count: number;
   members?: { user_email: string; role: string }[];
 }
+interface GroupDocumentRecord {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  doc_status: string;
+  updated_at: string;
+  created_at: string;
+}
 
 export default function AdminPage() {
   const { user } = useUser();
@@ -140,6 +149,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<GroupRecord | null>(null);
+  const [groupDocuments, setGroupDocuments] = useState<GroupDocumentRecord[]>([]);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState("member");
   const [newGroupName, setNewGroupName] = useState("");
@@ -170,12 +180,23 @@ export default function AdminPage() {
   const [newRuleIdentifier, setNewRuleIdentifier] = useState("");
   const [newRuleName, setNewRuleName] = useState("");
   const [newRuleReason, setNewRuleReason] = useState("");
-  const currentUserRole = users.find(
+  const [selfRole, setSelfRole] = useState("member");
+  const currentUserRole = selfRole || users.find(
     (u) => u.email.toLowerCase() === currentUserEmail.toLowerCase()
   )?.role || "member";
   const canManageUsers = currentUserRole === "admin";
+  const canManageSources = currentUserRole === "admin";
   const canUploadGroup = currentUserRole === "admin" || currentUserRole === "group_admin";
   const canUploadPublic = currentUserRole === "admin";
+  const canManageSelectedGroup =
+    currentUserRole === "admin" ||
+    Boolean(
+      selectedGroup?.members?.some(
+        (m) =>
+          m.user_email.toLowerCase() === currentUserEmail.toLowerCase() &&
+          m.role === "group_admin"
+      )
+    );
 
   const fetchExclusionRules = async () => {
     setLoading(true);
@@ -333,6 +354,18 @@ export default function AdminPage() {
     }
   };
 
+  const fetchSelfRole = async () => {
+    if (!currentUserEmail) return;
+    try {
+      const res = await authedFetch(`${API_URL}/api/users/${encodeURIComponent(currentUserEmail)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.role) setSelfRole(data.role);
+    } catch (e) {
+      console.error("Failed to fetch current user role:", e);
+    }
+  };
+
   const fetchGroups = async () => {
     setLoading(true);
     try {
@@ -351,8 +384,12 @@ export default function AdminPage() {
       const res = await authedFetch(`${API_URL}/api/groups/${groupId}`);
       const data = await res.json();
       setSelectedGroup(data);
+      const docsRes = await authedFetch(`${API_URL}/api/groups/${groupId}/documents?limit=100`);
+      const docsData = await docsRes.json();
+      setGroupDocuments(docsData.documents || []);
     } catch (e) {
       console.error("Failed to fetch group detail:", e);
+      setGroupDocuments([]);
     }
   };
 
@@ -418,6 +455,7 @@ export default function AdminPage() {
     try {
       await authedFetch(`${API_URL}/api/groups/${groupId}`, { method: "DELETE" });
       setSelectedGroup(null);
+      setGroupDocuments([]);
       fetchGroups();
     } catch (e) {
       console.error("Failed to delete group:", e);
@@ -447,6 +485,18 @@ export default function AdminPage() {
       fetchGroupDetail(groupId);
     } catch (e) {
       console.error("Failed to remove member:", e);
+    }
+  };
+
+  const deleteGroupDocument = async (groupId: string, documentId: string) => {
+    if (!confirm("Delete this document from the group knowledge base?")) return;
+    try {
+      await authedFetch(`${API_URL}/api/groups/${groupId}/documents/${documentId}`, {
+        method: "DELETE",
+      });
+      fetchGroupDetail(groupId);
+    } catch (e) {
+      console.error("Failed to delete group document:", e);
     }
   };
 
@@ -646,6 +696,10 @@ export default function AdminPage() {
     }
   }, []);
 
+  useEffect(() => {
+    fetchSelfRole();
+  }, [currentUserEmail]);
+
   const handleReview = async (id: string, action: "approve" | "reject") => {
     try {
       const res = await fetch(
@@ -700,14 +754,52 @@ export default function AdminPage() {
     });
   };
 
+  const triggerSync = async () => {
+    if (!settings || syncing) return;
+    const enabled = settings.enabled_sources || [];
+    const source =
+      enabled.includes("slack") ? "slack" :
+      enabled.includes("clickup") ? "clickup" :
+      enabled.includes("meet") ? "meet" :
+      enabled.includes("calendar") ? "calendar" :
+      enabled.includes("drive") ? "drive" :
+      "all";
+
+    const payload: { source: string; folder_ids?: string[] } = { source };
+    if (source === "drive" && settings.google_drive_folder_ids?.length) {
+      payload.folder_ids = settings.google_drive_folder_ids;
+    }
+
+    try {
+      setSyncing(true);
+      await fetch(`${API_URL}/api/ingest/trigger`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      alert(`Ingestion triggered for ${source}. Check backend logs for progress.`);
+    } catch (e) {
+      console.error("Failed to trigger ingestion:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const [adminOpen, setAdminOpen] = useState(false);
 
-  const tabs = [
+  const baseTabs = [
     { key: "connections", label: "Connections" },
     { key: "ingestion", label: "Sources" },
     { key: "upload", label: "Upload" },
     { key: "no-index", label: "No-Index Zones" },
   ] as const;
+  const tabs = baseTabs.filter((t) => (t.key === "ingestion" ? canManageSources : true));
+
+  useEffect(() => {
+    if (tab === "ingestion" && !canManageSources) {
+      setTab("upload");
+    }
+  }, [tab, canManageSources]);
 
   const adminTabs = [
     { key: "users", label: "Users" },
@@ -1300,7 +1392,7 @@ export default function AdminPage() {
       )}
 
       {/* Ingestion Tab */}
-      {tab === "ingestion" && !loading && settings && (
+      {tab === "ingestion" && canManageSources && !loading && settings && (
         <div className="space-y-8">
           {/* Sources Section */}
           <section className="bg-white rounded-xl border p-6">
@@ -1671,6 +1763,50 @@ export default function AdminPage() {
                     )}
                   </div>
                 </div>
+
+                <div>
+                  <h3 className="text-sm font-medium mb-2">Group Documents ({groupDocuments.length})</h3>
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {groupDocuments.map((d) => (
+                      <div key={d.id} className="p-3 rounded-lg bg-gray-50 border border-gray-100">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">{d.title}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              {d.source} • {d.doc_status}
+                            </div>
+                          </div>
+                          {d.url ? (
+                            <a
+                              href={d.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs px-2 py-1 rounded border border-blue-200 text-blue-700 hover:bg-blue-50"
+                            >
+                              Open
+                            </a>
+                          ) : (
+                            <span className="text-xs text-gray-400">No link</span>
+                          )}
+                          <button
+                            onClick={() => selectedGroup && deleteGroupDocument(selectedGroup.id, d.id)}
+                            disabled={!canManageSelectedGroup}
+                            className={`text-xs px-2 py-1 rounded border ${
+                              canManageSelectedGroup
+                                ? "border-red-200 text-red-600 hover:bg-red-50"
+                                : "border-gray-200 text-gray-400 cursor-not-allowed"
+                            }`}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {groupDocuments.length === 0 && (
+                      <p className="text-sm text-gray-400">No group-scoped documents found yet.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="bg-white rounded-xl border p-8 text-center text-gray-400">
@@ -1952,33 +2088,3 @@ function RoleBadge({ role, className = "" }: { role: string; className?: string 
     </span>
   );
 }
-  const triggerSync = async () => {
-    if (!settings || syncing) return;
-    const enabled = settings.enabled_sources || [];
-    const source =
-      enabled.includes("slack") ? "slack" :
-      enabled.includes("clickup") ? "clickup" :
-      enabled.includes("meet") ? "meet" :
-      enabled.includes("calendar") ? "calendar" :
-      enabled.includes("drive") ? "drive" :
-      "all";
-
-    const payload: { source: string; folder_ids?: string[] } = { source };
-    if (source === "drive" && settings.google_drive_folder_ids?.length) {
-      payload.folder_ids = settings.google_drive_folder_ids;
-    }
-
-    try {
-      setSyncing(true);
-      await fetch(`${API_URL}/api/ingest/trigger`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      alert(`Ingestion triggered for ${source}. Check backend logs for progress.`);
-    } catch (e) {
-      console.error("Failed to trigger ingestion:", e);
-    } finally {
-      setSyncing(false);
-    }
-  };

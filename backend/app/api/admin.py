@@ -1,11 +1,12 @@
 import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy import func, case
 import logging
 from typing import Optional, List
 
 from app.core.database import SessionLocal
+from app.core.auth import get_current_user_email
 from app.models import AuditLog, DecisionRecord, AnswerFeedback, GlobalSettings, Document, Chunk, ExclusionRule
 from app.models.review_queue import ReviewQueueItem
 
@@ -547,19 +548,27 @@ def update_settings(req: SettingsUpdate):
 
 
 @router.get("/graph")
-def get_graph_data():
+def get_graph_data(actor_email: str = Depends(get_current_user_email)):
     """Return knowledge graph data: source breakdown, project clusters, people, recent docs."""
     import re
+    from app.core.acl import user_can_see_chunk
     db = SessionLocal()
     try:
+        docs_all = db.query(Document).all()
+        visible_docs = [d for d in docs_all if user_can_see_chunk(actor_email, list(d.acl or []))]
+
         # Source node counts
-        source_counts = db.query(Document.source, func.count(Document.id)).group_by(Document.source).all()
-        sources = [{"id": s, "count": c} for s, c in source_counts]
+        source_counter: dict[str, int] = {}
+        for d in visible_docs:
+            source_counter[d.source] = source_counter.get(d.source, 0) + 1
+        sources = [{"id": s, "count": c} for s, c in source_counter.items()]
 
         # Derive project clusters from non-calendar doc titles only
-        clusterable_docs = db.query(Document.title, Document.source, Document.url, Document.created_at).filter(
-            Document.source.notin_(["calendar"])
-        ).all()
+        clusterable_docs = [
+            (d.title, d.source, d.url, d.created_at)
+            for d in visible_docs
+            if d.source not in ("calendar",)
+        ]
         project_map: dict = {}
         for title, source, url, created_at in clusterable_docs:
             if not title:
@@ -586,7 +595,8 @@ def get_graph_data():
 
         # People: collect unique emails from Document ACL lists
         people_count: dict = {}
-        for (acl,) in db.query(Document.acl).all():
+        for d in visible_docs:
+            acl = d.acl
             if not acl:
                 continue
             for entry in acl:
@@ -595,12 +605,18 @@ def get_graph_data():
         people = [{"email": e, "doc_count": c} for e, c in sorted(people_count.items(), key=lambda x: -x[1])[:20]]
 
         # Recent 10 docs
-        recent = db.query(Document).order_by(Document.created_at.desc()).limit(10).all()
+        recent = sorted(
+            visible_docs,
+            key=lambda d: d.created_at or datetime.datetime.min,
+            reverse=True,
+        )[:10]
         recent_docs = [{"title": d.title, "source": d.source, "url": d.url or "", "created_at": d.created_at.isoformat() if d.created_at else ""} for d in recent]
 
         # Totals
-        total_docs = db.query(Document).count()
-        total_chunks = db.query(Chunk).count()
+        total_docs = len(visible_docs)
+        visible_doc_ids = {d.id for d in visible_docs}
+        total_chunks = db.query(Chunk).filter(Chunk.document_id.in_(visible_doc_ids)).count() if visible_doc_ids else 0
+        # Decisions are globally derived; ACL-filtered decision graph can be added later.
         total_decisions = db.query(DecisionRecord).count()
 
         return {

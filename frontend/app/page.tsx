@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import OracleResponse from "@/components/OracleResponse";
 import CitationCard from "@/components/CitationCard";
 
@@ -9,28 +9,41 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function Home() {
   const { user } = useUser();
-  const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "sachin.kurup@seedlinglabs.com";
+  const { getToken } = useAuth();
+  const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState<any[]>(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(sessionStorage.getItem("xylem_chat_messages") || "[]"); } catch { return []; }
-  });
+  const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [sessionId, setSessionId] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return sessionStorage.getItem("xylem_chat_session") || "";
-  });
+  const [sessionId, setSessionId] = useState("");
+  const [hydrated, setHydrated] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Persist chat state across navigation
+  // Hydrate client-only state after mount to avoid SSR/CSR mismatch.
   useEffect(() => {
+    try {
+      const storedMessages = JSON.parse(sessionStorage.getItem("xylem_chat_messages") || "[]");
+      const storedSession = sessionStorage.getItem("xylem_chat_session") || "";
+      setMessages(Array.isArray(storedMessages) ? storedMessages : []);
+      setSessionId(storedSession);
+    } catch {
+      setMessages([]);
+      setSessionId("");
+    } finally {
+      setHydrated(true);
+    }
+  }, []);
+
+  // Persist chat state across navigation (after hydration only)
+  useEffect(() => {
+    if (!hydrated) return;
     sessionStorage.setItem("xylem_chat_messages", JSON.stringify(messages));
-  }, [messages]);
+  }, [messages, hydrated]);
 
   useEffect(() => {
+    if (!hydrated) return;
     sessionStorage.setItem("xylem_chat_session", sessionId);
-  }, [sessionId]);
+  }, [sessionId, hydrated]);
 
   // Stats could come from an API endpoint, but keeping it simple for now
   const stats = {
@@ -65,9 +78,13 @@ export default function Home() {
     setLoading(true);
 
     try {
+      const token = await getToken();
       const res = await fetch(`${API_URL}/api/oracle/ask`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           question: q,
           user_email: userEmail,
@@ -96,6 +113,7 @@ export default function Home() {
   }, [question, loading, messages, sessionId]);
 
   useEffect(() => {
+    if (!hydrated) return;
     const handleCustomQuery = (e: any) => {
       if (e.detail) {
         if (typeof e.detail === "string") {
@@ -119,7 +137,7 @@ export default function Home() {
       window.removeEventListener("xylem_query", handleCustomQuery);
       window.removeEventListener("xylem_new_query", handleNewQuery);
     };
-  }, [handleAsk]);
+  }, [handleAsk, hydrated]);
 
   return (
     <div className="flex-1 flex flex-col h-screen min-w-0">
