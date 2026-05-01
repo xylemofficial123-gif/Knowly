@@ -14,6 +14,7 @@ from app.api.admin import router as admin_router
 from app.api.transcripts import router as transcripts_router
 from app.api.ingestion import router as ingestion_router
 from app.api.users import router as users_router
+from app.api.users import ensure_bootstrap_admins
 from app.api.guardian import router as guardian_router
 from app.api.oauth import router as oauth_router
 from app.core.database import SessionLocal
@@ -322,6 +323,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Knowledge Agent API...")
     create_tables()
     run_migrations()
+    ensure_bootstrap_admins()
     try:
         ensure_collection()
     except Exception as e:

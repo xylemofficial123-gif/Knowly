@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -86,7 +87,15 @@ interface GroupRecord {
 
 export default function AdminPage() {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const currentUserEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
+
+  const authedFetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const token = await getToken();
+    const headers = new Headers(init.headers || {});
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  };
 
   const [tab, setTab] = useState<"metrics" | "audit" | "review" | "feedback" | "ingestion" | "users" | "groups" | "upload" | "connections" | "no-index">(
     "ingestion"
@@ -140,7 +149,6 @@ export default function AdminPage() {
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadEmail, setUploadEmail] = useState("");
   const [uploadScope, setUploadScope] = useState("private");
   const [uploadGroupId, setUploadGroupId] = useState("");
   const [uploadTitle, setUploadTitle] = useState("");
@@ -162,6 +170,12 @@ export default function AdminPage() {
   const [newRuleIdentifier, setNewRuleIdentifier] = useState("");
   const [newRuleName, setNewRuleName] = useState("");
   const [newRuleReason, setNewRuleReason] = useState("");
+  const currentUserRole = users.find(
+    (u) => u.email.toLowerCase() === currentUserEmail.toLowerCase()
+  )?.role || "member";
+  const canManageUsers = currentUserRole === "admin";
+  const canUploadGroup = currentUserRole === "admin" || currentUserRole === "group_admin";
+  const canUploadPublic = currentUserRole === "admin";
 
   const fetchExclusionRules = async () => {
     setLoading(true);
@@ -309,7 +323,7 @@ export default function AdminPage() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/users`);
+      const res = await authedFetch(`${API_URL}/api/users`);
       const data = await res.json();
       setUsers(data.users || []);
     } catch (e) {
@@ -322,7 +336,7 @@ export default function AdminPage() {
   const fetchGroups = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/groups`);
+      const res = await authedFetch(`${API_URL}/api/groups`);
       const data = await res.json();
       setGroups(data.groups || []);
     } catch (e) {
@@ -334,7 +348,7 @@ export default function AdminPage() {
 
   const fetchGroupDetail = async (groupId: string) => {
     try {
-      const res = await fetch(`${API_URL}/api/groups/${groupId}`);
+      const res = await authedFetch(`${API_URL}/api/groups/${groupId}`);
       const data = await res.json();
       setSelectedGroup(data);
     } catch (e) {
@@ -343,9 +357,10 @@ export default function AdminPage() {
   };
 
   const createUser = async () => {
+    if (!canManageUsers) return;
     if (!newUserEmail.trim()) return;
     try {
-      await fetch(`${API_URL}/api/users`, {
+      await authedFetch(`${API_URL}/api/users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: newUserEmail.trim(), role: newUserRole }),
@@ -358,8 +373,9 @@ export default function AdminPage() {
   };
 
   const updateUserRole = async (email: string, role: string) => {
+    if (!canManageUsers) return;
     try {
-      await fetch(`${API_URL}/api/users/${encodeURIComponent(email)}`, {
+      await authedFetch(`${API_URL}/api/users/${encodeURIComponent(email)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role }),
@@ -371,9 +387,10 @@ export default function AdminPage() {
   };
 
   const deleteUser = async (email: string) => {
+    if (!canManageUsers) return;
     if (!confirm(`Delete user ${email}?`)) return;
     try {
-      await fetch(`${API_URL}/api/users/${encodeURIComponent(email)}`, { method: "DELETE" });
+      await authedFetch(`${API_URL}/api/users/${encodeURIComponent(email)}`, { method: "DELETE" });
       fetchUsers();
     } catch (e) {
       console.error("Failed to delete user:", e);
@@ -383,7 +400,7 @@ export default function AdminPage() {
   const createGroup = async () => {
     if (!newGroupName.trim()) return;
     try {
-      await fetch(`${API_URL}/api/groups`, {
+      await authedFetch(`${API_URL}/api/groups`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newGroupName.trim(), description: newGroupDesc }),
@@ -399,7 +416,7 @@ export default function AdminPage() {
   const deleteGroup = async (groupId: string) => {
     if (!confirm("Delete this group?")) return;
     try {
-      await fetch(`${API_URL}/api/groups/${groupId}`, { method: "DELETE" });
+      await authedFetch(`${API_URL}/api/groups/${groupId}`, { method: "DELETE" });
       setSelectedGroup(null);
       fetchGroups();
     } catch (e) {
@@ -410,7 +427,7 @@ export default function AdminPage() {
   const addMember = async (groupId: string) => {
     if (!addMemberEmail.trim()) return;
     try {
-      await fetch(`${API_URL}/api/groups/${groupId}/members`, {
+      await authedFetch(`${API_URL}/api/groups/${groupId}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_email: addMemberEmail.trim(), role: addMemberRole }),
@@ -424,7 +441,7 @@ export default function AdminPage() {
 
   const removeMember = async (groupId: string, email: string) => {
     try {
-      await fetch(`${API_URL}/api/groups/${groupId}/members/${encodeURIComponent(email)}`, {
+      await authedFetch(`${API_URL}/api/groups/${groupId}/members/${encodeURIComponent(email)}`, {
         method: "DELETE",
       });
       fetchGroupDetail(groupId);
@@ -434,24 +451,36 @@ export default function AdminPage() {
   };
 
   const handleUpload = async () => {
-    if (!uploadFile || !uploadEmail.trim()) {
-      setUploadStatus("Please select a file and enter your email.");
+    if (!uploadFile) {
+      setUploadStatus("Please select a file.");
+      return;
+    }
+    if (!currentUserEmail.trim()) {
+      setUploadStatus("Unable to resolve signed-in user email.");
       return;
     }
     if (uploadScope === "group" && !uploadGroupId) {
       setUploadStatus("Please select a group for group-scoped upload.");
       return;
     }
+    if (uploadScope === "group" && !canUploadGroup) {
+      setUploadStatus("Only admins or group admins can upload group-scoped documents.");
+      return;
+    }
+    if (uploadScope === "public" && !canUploadPublic) {
+      setUploadStatus("Only admins can upload public documents.");
+      return;
+    }
     setUploadStatus("Uploading...");
     const formData = new FormData();
     formData.append("file", uploadFile);
-    formData.append("user_email", uploadEmail.trim());
+    formData.append("user_email", currentUserEmail.trim());
     formData.append("scope", uploadScope);
     formData.append("group_id", uploadGroupId);
     formData.append("title", uploadTitle || uploadFile.name);
     formData.append("shared_with", uploadSharedWith);
     try {
-      const res = await fetch(`${API_URL}/api/ingest/upload`, { method: "POST", body: formData });
+      const res = await authedFetch(`${API_URL}/api/ingest/upload`, { method: "POST", body: formData });
       if (res.ok) {
         const data = await res.json();
         setUploadStatus(`Uploaded "${data.filename}" with ${data.scope} scope.`);
@@ -1420,18 +1449,33 @@ export default function AdminPage() {
           {/* Add User */}
           <section className="bg-white rounded-xl border p-6">
             <h2 className="text-lg font-semibold mb-4">Add User</h2>
+            {!canManageUsers && (
+              <p className="text-sm text-gray-500 mb-3">
+                Admin role required to add/remove users or change roles.
+              </p>
+            )}
             <div className="flex gap-3 flex-wrap">
               <input
                 type="email"
                 value={newUserEmail}
                 onChange={(e) => setNewUserEmail(e.target.value)}
                 placeholder="user@company.com"
-                className="flex-1 min-w-48 px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                disabled={!canManageUsers}
+                className={`flex-1 min-w-48 px-4 py-2 rounded-lg border text-sm outline-none ${
+                  canManageUsers
+                    ? "focus:ring-2 focus:ring-blue-500"
+                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                }`}
               />
               <select
                 value={newUserRole}
                 onChange={(e) => setNewUserRole(e.target.value)}
-                className="px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                disabled={!canManageUsers}
+                className={`px-4 py-2 rounded-lg border text-sm outline-none ${
+                  canManageUsers
+                    ? "focus:ring-2 focus:ring-blue-500"
+                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                }`}
               >
                 <option value="member">Member</option>
                 <option value="group_admin">Group Admin</option>
@@ -1439,7 +1483,12 @@ export default function AdminPage() {
               </select>
               <button
                 onClick={createUser}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                disabled={!canManageUsers}
+                className={`px-5 py-2 rounded-lg text-sm font-medium ${
+                  canManageUsers
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                }`}
               >
                 Add User
               </button>
@@ -1469,7 +1518,12 @@ export default function AdminPage() {
                       <select
                         value={u.role}
                         onChange={(e) => updateUserRole(u.email, e.target.value)}
-                        className="text-xs px-2 py-1 rounded border"
+                        disabled={!canManageUsers}
+                        className={`text-xs px-2 py-1 rounded border ${
+                          canManageUsers
+                            ? ""
+                            : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        }`}
                       >
                         <option value="member">member</option>
                         <option value="group_admin">group_admin</option>
@@ -1477,7 +1531,12 @@ export default function AdminPage() {
                       </select>
                       <button
                         onClick={() => deleteUser(u.email)}
-                        className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50"
+                        disabled={!canManageUsers}
+                        className={`text-xs px-2 py-1 rounded border ${
+                          canManageUsers
+                            ? "border-red-200 text-red-600 hover:bg-red-50"
+                            : "border-gray-200 text-gray-400 cursor-not-allowed"
+                        }`}
                       >
                         Remove
                       </button>
@@ -1751,13 +1810,12 @@ export default function AdminPage() {
             </p>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Your Email</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Signed-in User</label>
               <input
                 type="email"
-                value={uploadEmail}
-                onChange={(e) => setUploadEmail(e.target.value)}
-                placeholder="you@company.com"
-                className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                value={currentUserEmail}
+                readOnly
+                className="w-full px-4 py-2 rounded-lg border text-sm bg-gray-100 text-gray-500"
               />
             </div>
 
@@ -1768,20 +1826,28 @@ export default function AdminPage() {
                   { value: "private", label: "Private", desc: "Only you" },
                   { value: "group", label: "Group", desc: "Your team" },
                   { value: "public", label: "Public", desc: "Everyone (admin only)" },
-                ].map((s) => (
-                  <button
-                    key={s.value}
-                    onClick={() => setUploadScope(s.value)}
-                    className={`p-3 rounded-lg border text-left transition-colors ${
-                      uploadScope === s.value
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="text-sm font-medium">{s.label}</div>
-                    <div className="text-xs text-gray-500">{s.desc}</div>
-                  </button>
-                ))}
+                ].map((s) => {
+                  const disabled =
+                    (s.value === "group" && !canUploadGroup) ||
+                    (s.value === "public" && !canUploadPublic);
+                  return (
+                    <button
+                      key={s.value}
+                      onClick={() => !disabled && setUploadScope(s.value)}
+                      disabled={disabled}
+                      className={`p-3 rounded-lg border text-left transition-colors ${
+                        uploadScope === s.value
+                          ? "border-blue-500 bg-blue-50"
+                          : disabled
+                            ? "border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed"
+                            : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <div className="text-sm font-medium">{s.label}</div>
+                      <div className="text-xs text-gray-500">{s.desc}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
