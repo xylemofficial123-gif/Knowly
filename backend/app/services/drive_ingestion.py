@@ -526,12 +526,13 @@ def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None, user_e
 
     logger.info(f"Found {len(files)} Drive files to check")
 
-    # Build a lookup of existing documents by source_id to skip unchanged files
+    # Build a lookup of existing documents by source_id to skip unchanged files.
+    # Include ACL so we can force re-ingestion when migrating to workspace/public visibility.
     db = SessionLocal()
     try:
         existing_docs = {
-            doc.source_id: doc.updated_at
-            for doc in db.query(Document.source_id, Document.updated_at)
+            doc.source_id: {"updated_at": doc.updated_at, "acl": list(doc.acl or [])}
+            for doc in db.query(Document.source_id, Document.updated_at, Document.acl)
             .filter(Document.source.startswith("drive"))
             .all()
         }
@@ -546,12 +547,15 @@ def ingest_all_drive(folder_id: str = None, folder_ids: list[str] = None, user_e
         modified_time = f.get("modifiedTime", "")
 
         # Skip if we already have this file and it hasn't been modified
-        if source_id in existing_docs and existing_docs[source_id]:
+        existing = existing_docs.get(source_id)
+        if existing and existing.get("updated_at"):
             from datetime import datetime, timezone
             try:
                 drive_modified = datetime.fromisoformat(modified_time.replace("Z", "+00:00"))
-                our_updated = existing_docs[source_id].replace(tzinfo=timezone.utc)
-                if drive_modified <= our_updated:
+                our_updated = existing["updated_at"].replace(tzinfo=timezone.utc)
+                current_acl = existing.get("acl", [])
+                has_public_acl = "public" in current_acl
+                if drive_modified <= our_updated and has_public_acl:
                     skipped += 1
                     continue
             except (ValueError, AttributeError):
