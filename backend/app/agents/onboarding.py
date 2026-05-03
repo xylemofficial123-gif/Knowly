@@ -9,7 +9,7 @@ from app.services.embeddings import embed_text, search_chunks
 from app.core.acl import user_can_see_chunk
 from app.core.database import SessionLocal
 from app.core.timezone import format_ist_date
-from app.models import DecisionRecord
+from app.models import DecisionRecord, Document
 from app.services.settings_service import get_enabled_sources
 
 logger = logging.getLogger(__name__)
@@ -178,6 +178,7 @@ class OnboardingAgent(BaseAgent):
                 decisions_text=decisions_text,
                 citation_map=citation_map,
                 all_chunks=all_chunks,
+                user_email=context.user_email,
             )
 
         prompt = ONBOARDING_PROMPT.format(
@@ -245,6 +246,7 @@ class OnboardingAgent(BaseAgent):
         decisions_text: str,
         citation_map: dict,
         all_chunks: list[str],
+        user_email: str = "",
     ) -> AgentResult:
         project_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]+", project_name) if len(t) > 2]
         filtered_sources = []
@@ -262,6 +264,24 @@ class OnboardingAgent(BaseAgent):
             filtered_sources.append(
                 f"[SOURCE_{i}] (source: {meta.get('source', 'unknown')}, title: {title})\n{excerpt}"
             )
+
+        # Fallback: if vector retrieval missed project docs, pull from title/content match.
+        if not filtered_sources and project_name:
+            fallback = self._fallback_sources_from_documents(project_name, user_email, max_items=6)
+            if fallback:
+                base_idx = len(citation_map)
+                for j, item in enumerate(fallback, 1):
+                    label = f"SOURCE_{base_idx + j}"
+                    citation_map[label] = {
+                        "url": item.get("url", ""),
+                        "source": item.get("source", "unknown"),
+                        "display": item.get("title", "Document"),
+                        "excerpt": item.get("excerpt", "")[:300],
+                        "score": 0.55,
+                    }
+                    filtered_sources.append(
+                        f"[{label}] (source: {item.get('source', 'unknown')}, title: {item.get('title', 'Document')})\n{item.get('excerpt', '')}"
+                    )
 
         if not filtered_sources:
             answer = (
@@ -368,6 +388,41 @@ Sources:
     def _is_low_signal_excerpt(self, text: str) -> bool:
         t = (text or "").lower()
         return any(p in t for p in LOW_SIGNAL_PATTERNS)
+
+    def _fallback_sources_from_documents(self, project_name: str, user_email: str, max_items: int = 6) -> list[dict]:
+        """Lexical fallback from document title/content when vector recall is poor."""
+        db = SessionLocal()
+        try:
+            q = f"%{project_name}%"
+            docs = (
+                db.query(Document)
+                .filter((Document.title.ilike(q)) | (Document.content.ilike(q)))
+                .order_by(Document.updated_at.desc())
+                .limit(20)
+                .all()
+            )
+
+            out = []
+            for d in docs:
+                acl = list(d.acl or [])
+                if not user_can_see_chunk(user_email, acl):
+                    continue
+                snippet = (d.content or "")[:500]
+                if self._is_low_signal_excerpt(f"{d.title or ''} {snippet}"):
+                    continue
+                out.append(
+                    {
+                        "title": d.title or "Document",
+                        "source": d.source or "unknown",
+                        "url": d.url or "",
+                        "excerpt": snippet or (d.title or ""),
+                    }
+                )
+                if len(out) >= max_items:
+                    break
+            return out
+        finally:
+            db.close()
 
     def _extract_date(self, text: str) -> str:
         m = re.search(r"(\d{4}[/-]\d{2}[/-]\d{2})", text)
