@@ -70,12 +70,20 @@ class OnboardingAgent(BaseAgent):
         project_name = self._extract_project_name(query)
 
         # Search from multiple angles for comprehensive coverage
-        search_queries = [
-            query,
-            f"project overview background {query}",
-            f"decisions rationale {query}",
-            f"action items status {query}",
-        ]
+        if project_name:
+            search_queries = [
+                f"{project_name} project",
+                f"{project_name} timeline decisions blockers",
+                f"{project_name} slack drive meet updates",
+                f"{project_name} current status",
+            ]
+        else:
+            search_queries = [
+                query,
+                f"project overview background {query}",
+                f"decisions rationale {query}",
+                f"action items status {query}",
+            ]
 
         all_chunks = []
         sources_text = ""
@@ -92,7 +100,8 @@ class OnboardingAgent(BaseAgent):
             enabled_sources = get_enabled_sources()
             
             # ACL filter + minimum relevance threshold
-            relevant_results = [r for r in results if r.score >= 0.45]
+            threshold = 0.35 if project_name else 0.45
+            relevant_results = [r for r in results if r.score >= threshold]
             
             # Only consider results from enabled sources
             enabled_results = [r for r in relevant_results if r.payload.get("source", "unknown") in enabled_sources]
@@ -110,7 +119,11 @@ class OnboardingAgent(BaseAgent):
                 if not prev or float(r.score) > float(prev.score):
                     candidate_chunks[chunk_id] = r
 
-        selected = self._select_diverse_chunks(list(candidate_chunks.values()), max_total=12)
+        selected = self._select_diverse_chunks(
+            list(candidate_chunks.values()),
+            max_total=12,
+            project_name=project_name,
+        )
         for r in selected:
             chunk_id = str(r.id)
             source_counter += 1
@@ -233,6 +246,7 @@ class OnboardingAgent(BaseAgent):
         citation_map: dict,
         all_chunks: list[str],
     ) -> AgentResult:
+        project_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]+", project_name) if len(t) > 2]
         filtered_sources = []
         for i, meta in enumerate(citation_map.values(), 1):
             excerpt = (meta.get("excerpt") or "").strip()
@@ -241,6 +255,9 @@ class OnboardingAgent(BaseAgent):
             if not excerpt:
                 continue
             if self._is_low_signal_excerpt(combined):
+                continue
+            # Hard guard: in project mode, only include explicit project mentions.
+            if project_terms and not any(term in combined for term in project_terms):
                 continue
             filtered_sources.append(
                 f"[SOURCE_{i}] (source: {meta.get('source', 'unknown')}, title: {title})\n{excerpt}"
@@ -265,7 +282,8 @@ Return exactly 3 sections with these headings:
 Rules:
 - No fluff, no generic filler.
 - Only use facts from sources below.
-- Prefer Drive/Slack/Meet evidence when available; use ClickUp as supporting evidence.
+- Do NOT use information from other projects.
+- Prefer Drive/Slack/Meet evidence when available; use ClickUp only as supporting evidence.
 - For timeline, include 5-10 bullets with concrete dates when available.
 - Skip items with unknown/noisy metadata-only content.
 - For blockers, include max 3 bullets and include owner only if explicit; else write "Owner: Unknown".
@@ -300,10 +318,22 @@ Sources:
             metadata={"mode": "time_machine"},
         )
 
-    def _select_diverse_chunks(self, chunks: list, max_total: int = 12) -> list:
+    def _select_diverse_chunks(self, chunks: list, max_total: int = 12, project_name: str = "") -> list:
         """Balance sources so one connector (e.g., ClickUp) doesn't dominate."""
+        project_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]+", project_name) if len(t) > 2]
+
+        def is_project_match(r) -> bool:
+            if not project_terms:
+                return True
+            title = (r.payload.get("title", "") or "").lower()
+            text = (r.payload.get("text_preview", "") or "").lower()
+            combined = f"{title} {text}"
+            return any(term in combined for term in project_terms)
+
         by_source = {}
         for r in sorted(chunks, key=lambda x: float(x.score), reverse=True):
+            if not is_project_match(r):
+                continue
             source = r.payload.get("source", "unknown")
             by_source.setdefault(source, []).append(r)
 
