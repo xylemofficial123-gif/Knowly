@@ -114,7 +114,15 @@ def _get_clerk_user_email(user_id: str) -> str:
     raise HTTPException(status_code=401, detail="Unable to resolve user email from Clerk token")
 
 
-def get_current_user_email(authorization: Optional[str] = Header(default=None)) -> str:
+def get_current_user_email(
+    authorization: Optional[str] = Header(default=None),
+    x_extension_key: Optional[str] = Header(default=None),
+) -> str:
+    # Extension auth path: allow requests with a configured static key.
+    if settings.EXTENSION_API_KEY and x_extension_key:
+        if x_extension_key.strip() == settings.EXTENSION_API_KEY.strip():
+            return settings.EXTENSION_ACTOR_EMAIL.strip().lower()
+
     token = _extract_bearer_token(authorization)
     claims = _verify_clerk_token(token)
     user_id = claims.get("sub", "").strip()

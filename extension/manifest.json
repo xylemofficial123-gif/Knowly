@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Xylem Side Chat",
+  "version": "0.1.1",
+  "description": "Floating mini chatbot on any website",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "<all_urls>",
+    "http://localhost:8000/*",
+    "https://*.up.railway.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

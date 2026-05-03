@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     CLERK_API_BASE: str = "https://api.clerk.com"
     BYPASS_ACL: bool = False
     EXTRA_CORS_ORIGINS: str = ""
+    EXTENSION_API_KEY: str = ""
+    EXTENSION_ACTOR_EMAIL: str = "extension@xylem.local"
+    EXTENSION_ALLOWED_ORIGINS: str = ""
 
     # OAuth redirect URLs
     BACKEND_URL: str = "https://backend-api-production-148e.up.railway.app"

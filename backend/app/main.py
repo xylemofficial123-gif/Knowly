@@ -343,6 +343,11 @@ ALLOWED_ORIGINS = [
         if hasattr(settings, "EXTRA_CORS_ORIGINS") and settings.EXTRA_CORS_ORIGINS
         else []
     ),
+    *(
+        [o.strip() for o in settings.EXTENSION_ALLOWED_ORIGINS.split(",") if o.strip()]
+        if hasattr(settings, "EXTENSION_ALLOWED_ORIGINS") and settings.EXTENSION_ALLOWED_ORIGINS
+        else []
+    ),
 ]
 
 app.add_middleware(
