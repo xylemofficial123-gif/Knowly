@@ -68,6 +68,14 @@ export default function Sidebar() {
   }, [API_URL, getToken, user]);
 
   const visibleNavItems = navItems.filter((item) => item.id !== "ingest" || selfRole !== "member");
+  const openQuickOnboarding = () => {
+    sessionStorage.setItem("xylem_open_quick_onboarding", "1");
+    if (pathname !== "/") {
+      window.location.href = "/";
+      return;
+    }
+    window.dispatchEvent(new Event("xylem_quick_onboarding"));
+  };
 
   const handleQueryClick = (item: any) => {
     window.dispatchEvent(new CustomEvent("xylem_query", { detail: item }));
@@ -114,6 +122,23 @@ export default function Sidebar() {
               </Link>
             ))}
           </nav>
+        </section>
+
+        <section>
+          <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">Quick onboarding</p>
+          <div className="px-2">
+            <button
+              onClick={openQuickOnboarding}
+              className="w-full text-left px-4 py-4 rounded-2xl border border-green-100/80 bg-green-50/70 hover:bg-green-50 transition-all group"
+            >
+              <p className="text-[10px] font-bold text-green-700 uppercase tracking-widest mb-2">
+                Quick onboarding
+              </p>
+              <p className="text-[13px] font-semibold text-green-900 leading-snug group-hover:text-green-800">
+                Know your team / company / project
+              </p>
+            </button>
+          </div>
         </section>
 
         <section>

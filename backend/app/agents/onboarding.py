@@ -1,6 +1,7 @@
 """Onboarding Agent — generates knowledge packs and project context for team members."""
 import re
 import logging
+from datetime import datetime
 
 from app.agents.base import BaseAgent, AgentContext, AgentResult
 from app.services.llm import generate
@@ -46,6 +47,8 @@ Source Documents:
 
 Briefing:"""
 
+BLOCKER_HINTS = ("blocker", "blocked", "stuck", "dependency", "waiting on", "risk")
+
 
 class OnboardingAgent(BaseAgent):
     name = "onboarding"
@@ -57,6 +60,7 @@ class OnboardingAgent(BaseAgent):
     def run(self, context: AgentContext) -> AgentResult:
         """Build a comprehensive onboarding briefing."""
         query = context.original_query
+        project_name = self._extract_project_name(query)
 
         # Search from multiple angles for comprehensive coverage
         search_queries = [
@@ -143,6 +147,15 @@ class OnboardingAgent(BaseAgent):
                 confidence=0.0,
             )
 
+        # Minimal onboarding "time machine" mode with predictable output blocks.
+        if project_name:
+            return self._build_time_machine_response(
+                project_name=project_name,
+                decisions_text=decisions_text,
+                citation_map=citation_map,
+                all_chunks=all_chunks,
+            )
+
         prompt = ONBOARDING_PROMPT.format(
             question=query,
             decisions=decisions_text or "No formal decisions recorded on this topic.",
@@ -175,6 +188,114 @@ class OnboardingAgent(BaseAgent):
             ],
             confidence=0.7 if source_counter > 3 else 0.5,
         )
+
+    def _extract_project_name(self, query: str) -> str:
+        q = query.strip()
+        # Only parse the first sentence to avoid including instruction suffixes.
+        q_first = re.split(r"[.!?]\s+", q, maxsplit=1)[0].strip()
+        patterns = [
+            r"catch me up on the history of\s+(?:the\s+)?(.+?)(?:\s+project)?[?.!]*$",
+            r"history of\s+(?:the\s+)?(.+?)(?:\s+project)?[?.!]*$",
+            r"catch me up on\s+(?:the\s+)?(.+?)(?:\s+project)?[?.!]*$",
+            r"project scope:\s*(.+)$",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, q_first, re.IGNORECASE)
+            if m:
+                name = m.group(1).strip(" \"'")
+                name = re.sub(r"\s+", " ", name)
+                # Remove common instruction fragments if they appear inline.
+                name = re.split(
+                    r"\b(use only|output with|if evidence|ignore other|question:)\b",
+                    name,
+                    maxsplit=1,
+                    flags=re.IGNORECASE,
+                )[0].strip(" \"'")
+                if len(name) > 1:
+                    return name
+        return ""
+
+    def _build_time_machine_response(
+        self,
+        project_name: str,
+        decisions_text: str,
+        citation_map: dict,
+        all_chunks: list[str],
+    ) -> AgentResult:
+        timeline_events = []
+        blockers = []
+        project_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]+", project_name) if len(t) > 2]
+
+        for i, meta in enumerate(citation_map.values(), 1):
+            excerpt = (meta.get("excerpt") or "").strip()
+            title = (meta.get("display") or "").strip()
+            if not excerpt:
+                continue
+
+            combined = f"{title} {excerpt}".lower()
+            # Strict project relevance filter to reduce cross-project noise.
+            if project_terms and not any(term in combined for term in project_terms):
+                continue
+
+            # Drop common ingestion metadata-heavy lines.
+            if "[document metadata]" in combined or "last edited by" in combined:
+                continue
+
+            date = self._extract_date(excerpt) or self._extract_date(title) or "Unknown date"
+            cleaned = re.sub(r"\s+", " ", excerpt).strip()
+            timeline_events.append(f"- {date} — {cleaned[:130]} [{i}]")
+            if any(h in excerpt.lower() for h in BLOCKER_HINTS):
+                blockers.append(f"- {cleaned[:120]} (Owner: Unknown) [{i}]")
+
+        summary_line = (
+            f"{project_name} is an active project with documented decisions and ongoing work."
+            if decisions_text.strip() or timeline_events
+            else f"I cannot find documented records for {project_name} yet."
+        )
+        last_updated = format_ist_date(datetime.utcnow())
+
+        timeline_lines = timeline_events[:8] or ["- No timeline events found in accessible sources."]
+        blocker_lines = blockers[:3] or ["- No explicit blockers found in currently accessible records."]
+
+        answer = (
+            f"## Project Summary\n"
+            f"- {summary_line}\n"
+            f"- Last updated: {last_updated}\n\n"
+            f"## Key Timeline\n"
+            f"{chr(10).join(timeline_lines)}\n\n"
+            f"## Current Blockers\n"
+            f"{chr(10).join(blocker_lines)}\n\n"
+            f"Contact project owner for missing context or private docs."
+        )
+
+        citations = []
+        for num in sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer)}):
+            label = f"SOURCE_{num}"
+            if label in citation_map:
+                citations.append(citation_map[label])
+
+        return AgentResult(
+            answer=answer,
+            citations=citations,
+            chunks_used=all_chunks,
+            agent_name=self.name,
+            reasoning_steps=[
+                f"Detected onboarding catch-up query for '{project_name}'",
+                f"Compiled {len(timeline_lines)} timeline entries",
+                f"Found {len(blocker_lines)} blocker entries",
+            ],
+            confidence=0.7 if timeline_events else 0.4,
+            metadata={"mode": "time_machine"},
+        )
+
+    def _extract_date(self, text: str) -> str:
+        m = re.search(r"(\d{4}[/-]\d{2}[/-]\d{2})", text)
+        if m:
+            return m.group(1).replace("/", "-")
+        m = re.search(r"(\d{2}[/-]\d{2}[/-]\d{4})", text)
+        if m:
+            return m.group(1).replace("/", "-")
+        return ""
 
     def _get_relevant_decisions(self, query: str, user_email: str = "") -> str:
         """Fetch decisions related to the query topic, including reversal history.
