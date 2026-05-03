@@ -48,6 +48,13 @@ Source Documents:
 Briefing:"""
 
 BLOCKER_HINTS = ("blocker", "blocked", "stuck", "dependency", "waiting on", "risk")
+LOW_SIGNAL_PATTERNS = (
+    "task:",
+    "status:",
+    "list:",
+    "[document metadata]",
+    "last edited by",
+)
 
 
 class OnboardingAgent(BaseAgent):
@@ -75,6 +82,7 @@ class OnboardingAgent(BaseAgent):
         citation_map = {}
         source_counter = 0
         acl_blocked_count = 0
+        candidate_chunks = {}
 
         for sq in search_queries:
             vec = embed_text(sq)
@@ -96,28 +104,31 @@ class OnboardingAgent(BaseAgent):
             acl_blocked_count += len(enabled_results) - len(acl_passed)
             filtered = acl_passed
 
-            for r in filtered[:3]:
-                # Deduplicate by ID
+            for r in filtered:
                 chunk_id = str(r.id)
-                if chunk_id in all_chunks:
-                    continue
+                prev = candidate_chunks.get(chunk_id)
+                if not prev or float(r.score) > float(prev.score):
+                    candidate_chunks[chunk_id] = r
 
-                source_counter += 1
-                label = f"SOURCE_{source_counter}"
-                title = r.payload.get("title", "Unknown")
-                text = r.payload.get("text_preview", "")
-                url = r.payload.get("url", "")
-                source = r.payload.get("source", "unknown")
+        selected = self._select_diverse_chunks(list(candidate_chunks.values()), max_total=12)
+        for r in selected:
+            chunk_id = str(r.id)
+            source_counter += 1
+            label = f"SOURCE_{source_counter}"
+            title = r.payload.get("title", "Unknown")
+            text = r.payload.get("text_preview", "")
+            url = r.payload.get("url", "")
+            source = r.payload.get("source", "unknown")
 
-                sources_text += f"[{label}] (title: {title}, source: {source})\n{text}\n\n"
-                citation_map[label] = {
-                    "url": url,
-                    "source": source,
-                    "display": title or f"{source} document",
-                    "excerpt": text[:300],
-                    "score": round(r.score, 3),
-                }
-                all_chunks.append(chunk_id)
+            sources_text += f"[{label}] (title: {title}, source: {source})\n{text}\n\n"
+            citation_map[label] = {
+                "url": url,
+                "source": source,
+                "display": title or f"{source} document",
+                "excerpt": text[:300],
+                "score": round(r.score, 3),
+            }
+            all_chunks.append(chunk_id)
 
         # Get relevant decisions from the database, ACL-filtered.
         decisions_text = self._get_relevant_decisions(query, context.user_email)
@@ -222,66 +233,52 @@ class OnboardingAgent(BaseAgent):
         citation_map: dict,
         all_chunks: list[str],
     ) -> AgentResult:
-        timeline_events = []
-        blockers = []
-        relaxed_candidates = []
-        project_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]+", project_name) if len(t) > 2]
-
+        filtered_sources = []
         for i, meta in enumerate(citation_map.values(), 1):
             excerpt = (meta.get("excerpt") or "").strip()
             title = (meta.get("display") or "").strip()
+            combined = f"{title} {excerpt}".lower()
             if not excerpt:
                 continue
+            if self._is_low_signal_excerpt(combined):
+                continue
+            filtered_sources.append(
+                f"[SOURCE_{i}] (source: {meta.get('source', 'unknown')}, title: {title})\n{excerpt}"
+            )
 
-            combined = f"{title} {excerpt}".lower()
+        if not filtered_sources:
+            answer = (
+                "## Project Summary\n"
+                f"- I cannot find documented records for {project_name} in accessible sources.\n\n"
+                "## Key Timeline\n"
+                "- No timeline events found in accessible sources.\n\n"
+                "## Current Blockers\n"
+                "- No explicit blockers found in currently accessible records."
+            )
+        else:
+            prompt = f"""You are writing an onboarding project brief for "{project_name}".
+Return exactly 3 sections with these headings:
+## Project Summary
+## Key Timeline
+## Current Blockers
 
-            date = self._extract_date(excerpt) or self._extract_date(title) or "Unknown date"
-            cleaned = re.sub(r"\s+", " ", excerpt).strip()
-            event_line = f"- {date} — {cleaned[:130]} [{i}]"
-            blocker_line = f"- {cleaned[:120]} (Owner: Unknown) [{i}]"
-            has_project_term = any(term in combined for term in project_terms) if project_terms else True
+Rules:
+- No fluff, no generic filler.
+- Only use facts from sources below.
+- Prefer Drive/Slack/Meet evidence when available; use ClickUp as supporting evidence.
+- For timeline, include 5-10 bullets with concrete dates when available.
+- Skip items with unknown/noisy metadata-only content.
+- For blockers, include max 3 bullets and include owner only if explicit; else write "Owner: Unknown".
+- Add citations like [1], [2] that map to SOURCE numbers.
 
-            # Drop obvious metadata noise for strict mode.
-            is_metadata_noise = "[document metadata]" in combined or "last edited by" in combined
+Decisions:
+{decisions_text or "No formal decisions available."}
 
-            if has_project_term and not is_metadata_noise:
-                timeline_events.append(event_line)
-                if any(h in excerpt.lower() for h in BLOCKER_HINTS):
-                    blockers.append(blocker_line)
-            else:
-                # Keep strong semantic matches as fallback in case strict text match is too narrow.
-                score = float(meta.get("score") or 0.0)
-                if score >= 0.62 and not is_metadata_noise:
-                    relaxed_candidates.append((score, event_line, blocker_line, excerpt.lower()))
-
-        # Fallback: if strict matching found nothing, use high-similarity events.
-        if not timeline_events and relaxed_candidates:
-            relaxed_candidates.sort(key=lambda x: x[0], reverse=True)
-            for _, event_line, blocker_line, lowered_excerpt in relaxed_candidates[:8]:
-                timeline_events.append(event_line)
-                if any(h in lowered_excerpt for h in BLOCKER_HINTS):
-                    blockers.append(blocker_line)
-
-        summary_line = (
-            f"{project_name} is an active project with documented decisions and ongoing work."
-            if decisions_text.strip() or timeline_events
-            else f"I cannot find documented records for {project_name} yet."
-        )
-        last_updated = format_ist_date(datetime.utcnow())
-
-        timeline_lines = timeline_events[:8] or ["- No timeline events found in accessible sources."]
-        blocker_lines = blockers[:3] or ["- No explicit blockers found in currently accessible records."]
-
-        answer = (
-            f"## Project Summary\n"
-            f"- {summary_line}\n"
-            f"- Last updated: {last_updated}\n\n"
-            f"## Key Timeline\n"
-            f"{chr(10).join(timeline_lines)}\n\n"
-            f"## Current Blockers\n"
-            f"{chr(10).join(blocker_lines)}\n\n"
-            f"Contact project owner for missing context or private docs."
-        )
+Sources:
+{chr(10).join(filtered_sources)}
+"""
+            answer = generate(prompt, max_tokens=900).strip()
+            answer = re.sub(r"\[?SOURCE_(\d+)\]?", r"[\1]", answer)
 
         citations = []
         for num in sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer)}):
@@ -296,12 +293,51 @@ class OnboardingAgent(BaseAgent):
             agent_name=self.name,
             reasoning_steps=[
                 f"Detected onboarding catch-up query for '{project_name}'",
-                f"Compiled {len(timeline_lines)} timeline entries",
-                f"Found {len(blocker_lines)} blocker entries",
+                f"Selected {len(filtered_sources)} source snippets",
+                f"Returned {len(citations)} cited sources",
             ],
-            confidence=0.7 if timeline_events else 0.4,
+            confidence=0.75 if citations else 0.45,
             metadata={"mode": "time_machine"},
         )
+
+    def _select_diverse_chunks(self, chunks: list, max_total: int = 12) -> list:
+        """Balance sources so one connector (e.g., ClickUp) doesn't dominate."""
+        by_source = {}
+        for r in sorted(chunks, key=lambda x: float(x.score), reverse=True):
+            source = r.payload.get("source", "unknown")
+            by_source.setdefault(source, []).append(r)
+
+        selected = []
+        # First pass: take up to 2 from each source.
+        for source in sorted(by_source.keys()):
+            picked = 0
+            for r in by_source[source]:
+                if picked >= 2 or len(selected) >= max_total:
+                    break
+                text = (r.payload.get("text_preview", "") or "").lower()
+                if self._is_low_signal_excerpt(text):
+                    continue
+                selected.append(r)
+                picked += 1
+
+        # Second pass: fill remaining slots by score, regardless of source.
+        if len(selected) < max_total:
+            selected_ids = {str(r.id) for r in selected}
+            for r in sorted(chunks, key=lambda x: float(x.score), reverse=True):
+                if len(selected) >= max_total:
+                    break
+                if str(r.id) in selected_ids:
+                    continue
+                text = (r.payload.get("text_preview", "") or "").lower()
+                if self._is_low_signal_excerpt(text):
+                    continue
+                selected.append(r)
+                selected_ids.add(str(r.id))
+        return selected
+
+    def _is_low_signal_excerpt(self, text: str) -> bool:
+        t = (text or "").lower()
+        return any(p in t for p in LOW_SIGNAL_PATTERNS)
 
     def _extract_date(self, text: str) -> str:
         m = re.search(r"(\d{4}[/-]\d{2}[/-]\d{2})", text)
