@@ -224,6 +224,7 @@ class OnboardingAgent(BaseAgent):
     ) -> AgentResult:
         timeline_events = []
         blockers = []
+        relaxed_candidates = []
         project_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]+", project_name) if len(t) > 2]
 
         for i, meta in enumerate(citation_map.values(), 1):
@@ -233,19 +234,33 @@ class OnboardingAgent(BaseAgent):
                 continue
 
             combined = f"{title} {excerpt}".lower()
-            # Strict project relevance filter to reduce cross-project noise.
-            if project_terms and not any(term in combined for term in project_terms):
-                continue
-
-            # Drop common ingestion metadata-heavy lines.
-            if "[document metadata]" in combined or "last edited by" in combined:
-                continue
 
             date = self._extract_date(excerpt) or self._extract_date(title) or "Unknown date"
             cleaned = re.sub(r"\s+", " ", excerpt).strip()
-            timeline_events.append(f"- {date} — {cleaned[:130]} [{i}]")
-            if any(h in excerpt.lower() for h in BLOCKER_HINTS):
-                blockers.append(f"- {cleaned[:120]} (Owner: Unknown) [{i}]")
+            event_line = f"- {date} — {cleaned[:130]} [{i}]"
+            blocker_line = f"- {cleaned[:120]} (Owner: Unknown) [{i}]"
+            has_project_term = any(term in combined for term in project_terms) if project_terms else True
+
+            # Drop obvious metadata noise for strict mode.
+            is_metadata_noise = "[document metadata]" in combined or "last edited by" in combined
+
+            if has_project_term and not is_metadata_noise:
+                timeline_events.append(event_line)
+                if any(h in excerpt.lower() for h in BLOCKER_HINTS):
+                    blockers.append(blocker_line)
+            else:
+                # Keep strong semantic matches as fallback in case strict text match is too narrow.
+                score = float(meta.get("score") or 0.0)
+                if score >= 0.62 and not is_metadata_noise:
+                    relaxed_candidates.append((score, event_line, blocker_line, excerpt.lower()))
+
+        # Fallback: if strict matching found nothing, use high-similarity events.
+        if not timeline_events and relaxed_candidates:
+            relaxed_candidates.sort(key=lambda x: x[0], reverse=True)
+            for _, event_line, blocker_line, lowered_excerpt in relaxed_candidates[:8]:
+                timeline_events.append(event_line)
+                if any(h in lowered_excerpt for h in BLOCKER_HINTS):
+                    blockers.append(blocker_line)
 
         summary_line = (
             f"{project_name} is an active project with documented decisions and ongoing work."
