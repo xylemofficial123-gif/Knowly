@@ -224,6 +224,25 @@ class OnboardingAgent(BaseAgent):
             metadata=dict(context.metadata or {}),
         )
         result = research.run(project_ctx)
+        no_records_markers = (
+            "i could not find any documented records",
+            "i cannot find a documented record",
+            "i cannot find documented records",
+        )
+        if any(marker in (result.answer or "").lower() for marker in no_records_markers):
+            # Fallback to Oracle retrieval path, which may recover sources missed by ResearchAgent.
+            from app.services.oracle import ask_oracle
+            oracle = ask_oracle(f"What is {project_name}?", context.user_email)
+            result = AgentResult(
+                answer=oracle.get("answer", result.answer),
+                citations=oracle.get("citations", []),
+                chunks_used=oracle.get("chunks_used", []),
+                agent_name=self.name,
+                reasoning_steps=[
+                    f"ResearchAgent had no records; fallback to Oracle retrieval for '{project_name}'",
+                ],
+                confidence=0.7 if oracle.get("citations") else 0.4,
+            )
         result.agent_name = self.name
         result.reasoning_steps = [
             f"Delegated project onboarding for '{project_name}' to ResearchAgent retrieval pipeline"
