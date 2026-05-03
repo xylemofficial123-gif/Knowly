@@ -327,6 +327,29 @@ def process_guardian_check(
         db.close()
 
 
+@celery_app.task
+def probe_llm_env():
+    """Run on the Celery worker; reports which LLM keys the worker can see and
+    whether a tiny `generate()` call actually succeeds. Used by the admin
+    /env-check endpoint to diagnose Railway env-var scoping mismatches."""
+    from app.core.config import settings
+
+    keys_present = {
+        "gemini": bool(settings.GEMINI_API_KEY),
+        "groq": bool(settings.GROQ_API_KEY),
+        "openrouter": bool(settings.OPENROUTER_API_KEY),
+    }
+    ping = {"ok": False, "error": None, "response_preview": None}
+    try:
+        from app.services.llm import generate
+        out = generate("Reply with one word: OK")
+        ping["ok"] = True
+        ping["response_preview"] = (out or "")[:60]
+    except Exception as e:
+        ping["error"] = f"{type(e).__name__}: {e}"[:300]
+    return {"keys_present": keys_present, "live_call": ping}
+
+
 @celery_app.task(bind=True, max_retries=2)
 def extract_entities_for_document(self, document_id: str):
     """Build the entity graph for a freshly-ingested document.

@@ -879,6 +879,37 @@ def clear_source(source: str):
 from app.core.auth import require_admin
 
 
+@router.get("/env-check")
+def env_check(actor: str = Depends(require_admin)):
+    """Diagnose which LLM keys are visible on each Railway service.
+
+    Reports:
+    - backend: which keys this API service sees
+    - worker:  which keys the Celery worker sees, plus result of a live
+               generate() call (so we know if keys *work*, not just exist)
+
+    Without this it's painful to figure out which service is missing
+    a var, since Railway scopes env vars per-service.
+    """
+    from app.core.config import settings as app_settings
+    from app.workers.tasks import probe_llm_env
+
+    backend = {
+        "gemini": bool(app_settings.GEMINI_API_KEY),
+        "groq": bool(app_settings.GROQ_API_KEY),
+        "openrouter": bool(app_settings.OPENROUTER_API_KEY),
+    }
+
+    worker = {"error": None}
+    try:
+        result = probe_llm_env.apply_async()
+        worker = result.get(timeout=15)
+    except Exception as e:
+        worker = {"error": f"{type(e).__name__}: {e}"[:300]}
+
+    return {"backend": backend, "worker": worker}
+
+
 @router.post("/backfill/entities")
 def backfill_entities(actor: str = Depends(require_admin)):
     """Queue entity-graph extraction for every existing document.
