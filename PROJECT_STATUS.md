@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-04-28 (Ghost Documentation: ACL on DecisionRecord + Meet ingestion fires Slack ghost-doc prompts to meeting owner)
+> **Last updated**: 2026-05-03 (Entity Linking / Knowledge Graph: gazetteer + doc-level LLM extraction, Research Agent cross-source graph augmentation)
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -103,8 +103,8 @@ FastAPI Backend
 | Source-type boosting | DONE | Meet/transcript chunks boosted 1.3x, calendar chunks penalized 0.5x for meeting content queries |
 | Acronym buster | DONE | Glossary + AI-powered term lookup |
 | Cross-source redundancy prevention | DONE | Guardian Agent: threshold 0.78, dedup by document, ACL-filtered, LLM alert, Slack thread reply + ClickUp comment delivery, `guardian_alerts` audit table, `POST /api/guardian/check` + `GET /api/guardian/alerts` |
-| Entity linking / knowledge graph | NOT STARTED | Auto-link Slack discussion → ClickUp task → Drive doc about same topic. Unified cross-source graph. |
-| Version awareness (draft vs final) | DONE | `doc_status` field on Document model (draft/in_review/finalized/unknown). Auto-detected during Drive ingestion via title/content heuristics. Drafts penalized 0.6x in search, in_review 0.85x. LLM prompts label draft sources explicitly. |
+| Entity linking / knowledge graph | DONE | `Entity` + `EntityMention` Postgres tables. Background Celery task `extract_entities_for_document` runs after chunk_and_store: gazetteer-first scan against existing entities, then one LLM call per document to discover new ones (doc-level, not per-chunk). Research Agent's Phase 1.4 augments vector hits with chunks mentioning matched entities from any source — the cross-source connective tissue. ACL-filtered, source-enablement-filtered. |
+| Version awareness (draft vs final) | DONE | `doc_status` field on Document model (draft/in_review/finalized/unknown). Drive: title/content heuristics. ClickUp: maps task `status` field — closed/done/complete → finalized, review/qa → in_review, to_do/in_progress → draft. Slack: heuristic — pinned messages → finalized; "let's go with"/"approved"/"decided" → finalized; "wip"/"thinking about"/"wondering" → draft; otherwise unknown. Drafts penalized 0.6x in search, in_review 0.85x. LLM prompts label draft sources explicitly. |
 | Drift detection | DONE | `drift_detector.py` compares new Slack/ClickUp content against active DecisionRecords via cosine similarity (≥0.72) + LLM classification (CONTRADICTS/ALIGNED/UNRELATED). Integrated into Guardian check pipeline. Drift alerts delivered alongside Guardian alerts. Manual check via `POST /api/guardian/drift-check`. |
 | No-index zones | DONE | `ExclusionRule` model (source_type, identifier, name, reason). Admin CRUD API at `/api/admin/exclusion-rules`. In-memory cache refreshed per sync cycle. Enforced during Drive folder scan, Slack message ingestion + backfill, ClickUp space traversal. Frontend No-Index Zones tab for managing rules. |
 | Hallucination guardrails | DONE | All LLM prompts (Oracle, Research, Onboarding) enforce citation-only answers. Explicit "I cannot find a record" fallback when no sources match. Never invents rationale or context. |
@@ -270,17 +270,9 @@ Removed 2026-04-28. A WebSocket "live meeting" UI was built but misread the PRD:
 
 **Decision**: Email-based ACL is sufficient for current team size. Revisit when departments need data isolation.
 
-### Priority 7 — Entity Linking / Knowledge Graph
+### ~~Priority 7 — Entity Linking / Knowledge Graph~~ DONE
 
-**Goal**: Automatically connect related items across sources. When a Slack thread mentions "Project X", link it to the ClickUp task and Google Doc spec for "Project X" — creating a unified knowledge graph.
-
-**How it works**:
-- Extract entity names (projects, people, features) from every chunk during ingestion
-- Build a graph of entity → chunks relationships in Postgres or a dedicated graph store
-- When searching, pull related chunks from linked entities (not just vector similarity)
-- Enables queries like "Show me everything about Project X" across all sources
-
-**Prerequisites**: Entity extraction improvements (currently regex-based), Slack + ClickUp connected
+Implemented: `Entity` + `EntityMention` tables (`app/models/__init__.py`). `app/services/entity_extractor.py` does gazetteer-first scan against existing entity names + aliases, falling back to **one LLM call per document** (not per chunk) to discover new entities — keeps free-tier quota usage low. `extract_entities_for_document` Celery task fires from `chunk_and_store` so ingestion stays non-blocking. Research Agent Phase 1.4 (`app/agents/research.py`) finds entities in the user's query and augments vector-search hits with up to 8 chunks linked via `entity_mentions` from any source, ACL-filtered. Self-improving: each ingestion expands the gazetteer so subsequent ingestions need fewer LLM calls.
 
 ### ~~Priority 8 — Version Awareness (Draft vs Finalized)~~ DONE
 
@@ -447,6 +439,11 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-05-03 | Version awareness extended to ClickUp + Slack: `clickup_ingestion.ingest_task` maps task `status.status` to draft/in_review/finalized; `slack_ingestion.ingest_message` detects pinned messages + decision/draft phrase patterns. Closes the PRD feature 1.3 gap for the team's stack (Drive + ClickUp + Slack). Slack heuristics are intentionally noisy — unmatched messages stay `unknown` rather than being guessed as draft. |
+| 2026-05-03 | Entity-to-entity edges + Graph view: new `EntityCooccurrence` table (entity_a_id, entity_b_id, weight) populated from `process_document_entities` whenever ≥2 entities co-occur in the same chunk. `GET /api/admin/graph` returns a new `entity_links` field (top 200 edges by weight, ACL-filtered via visible-entity intersection). Frontend: List/Graph toggle on `/graph` "Linked across sources"; Graph view is a `react-force-graph-2d` force-directed network where node size = mentions, edge thickness = co-occurrence weight, color = entity type. Uses `next/dynamic({ssr:false})` since the lib needs a browser canvas. |
+| 2026-05-03 | Bugfix in entity_extractor: prompt template's literal `{"name":...}` JSON example was parsed by `str.format()` as a placeholder, raising `KeyError: '"name"'` for every doc. Escaped to `{{...}}`. Caught locally before pushing to Railway prod. |
+| 2026-05-03 | Knowledge Graph UI: `/graph` page (`frontend/app/graph/page.tsx`) gets a new "Linked across sources" section listing the top 60 entities ranked by cross-source coverage, with type-filter chips (All/Project/Person/Feature/Tool/Acronym), source pills, and expandable top-doc lists. Backed by new `entities` field on `GET /api/admin/graph` (ACL-filtered to mentions inside docs the user can see). |
+| 2026-05-03 | Entity Linking / Knowledge Graph: new `entities` + `entity_mentions` Postgres tables. `entity_extractor.py` rewritten with gazetteer-first scan + doc-level LLM extraction (one call per document, not per chunk — protects free-tier quota). Background `extract_entities_for_document` Celery task fires from `chunk_and_store` so ingestion stays non-blocking. Research Agent Phase 1.4 finds entities in the user's query via gazetteer match and augments vector-search hits with chunks linked via `entity_mentions` from any source (capped at 8 chunks, ACL-filtered, source-enablement-filtered). Closes the PRD "Connective Tissue" gap. |
 | 2026-04-28 | Ghost Documentation now fires from Google Meet ingestion (`_maybe_send_meet_ghost_prompts` in `meet_ingestion.py`): for each extracted decision, looks up the meeting owner's Slack ID via `users.lookupByEmail` and DMs them an approve/reject prompt with the meeting attendees ACL embedded in the callback. Closes the PRD gap where verbal-decision capture was Slack-only. |
 | 2026-04-28 | DecisionRecord ACL: added `decision_records.acl` JSON column (+ migration). All seven write sites set ACL: decision_extractor (chunk.acl), ghost_docs.handle_ghost_doc_approve (chunk.acl or callback override), meet_ingestion._store_action_items (attendees), admin.approve_review (source chunk acl), admin.reverse_decision (inherits from old), main.py /decision Slack command (public). User-facing reads filter via `user_can_see_chunk`: Research._get_decision_context, Onboarding._get_relevant_decisions, `GET /api/admin/decisions` (frontend `/decisions` page passes user_email). |
 | 2026-04-28 | Ghost-doc participants normalized to email: `handle_ghost_doc_approve` and `/decision` Slack command resolve Slack user_id → email via `users.info` before writing `DecisionRecord.participants`. Falls back to raw Slack ID if lookup fails (no token, etc.). |

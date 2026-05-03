@@ -1,9 +1,53 @@
 import logging
+import re
 from slack_sdk import WebClient
 from app.core.config import settings
 from app.services.chunker import chunk_and_store
 
 logger = logging.getLogger(__name__)
+
+
+# ── Version awareness heuristics ──────────────────────────────────────────────
+# Slack has no native draft/finalized concept. We approximate with three signals:
+#   1. Pinned messages → explicit team elevation → finalized
+#   2. Decision phrases ("let's go with", "approved", "decided") → finalized
+#   3. Draft phrases ("thinking about", "wip", "wondering") → draft
+# Otherwise unknown — being honest beats guessing.
+
+_SLACK_DECISION_PATTERN = re.compile(
+    r"\b("
+    r"let'?s\s+go\s+with|we'?ll\s+go\s+with|going\s+with|"
+    r"(?:we|i)'?ve?\s+decided|decided\s+to|decision\s+is|"
+    r"approv(?:ed|ing)|sign(?:ed)?\s*off|confirmed|finaliz(?:ed|ing)|"
+    r"go\s+ahead\s+with|ship\s+it"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_SLACK_DRAFT_PATTERN = re.compile(
+    r"\b("
+    r"thinking\s+about|wondering\s+if|what\s+if\s+we|"
+    r"\bwip\b|work\s+in\s+progress|just\s+brainstorm(?:ing)?|"
+    r"rough\s+thoughts?|exploring|maybe\s+we\s+could|"
+    r"could\s+we|should\s+we|hot\s+take|half[\s-]baked|"
+    r":wip:|:thinking_face:|:thought_balloon:"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_slack_doc_status(msg: dict, full_text: str) -> str:
+    # Slack API includes `pinned_to: [channel_id, ...]` on messages that are
+    # pinned to one or more channels. Treat as explicit elevation → finalized.
+    if msg.get("pinned_to") or msg.get("pinned"):
+        return "finalized"
+    # Decision phrases trump draft phrases — a thread with both means a decision
+    # was reached after debate.
+    if _SLACK_DECISION_PATTERN.search(full_text):
+        return "finalized"
+    if _SLACK_DRAFT_PATTERN.search(full_text):
+        return "draft"
+    return "unknown"
 
 
 def _get_client() -> WebClient:
@@ -179,6 +223,7 @@ def ingest_message(msg: dict, channel_id: str, channel_acl: list[str] = None):
         acl=formatted["acl"],
         title=formatted["title"],
         slack_user_id=formatted["slack_user_id"],
+        doc_status=_detect_slack_doc_status(msg, thread_text),
     )
 
 

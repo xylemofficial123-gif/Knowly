@@ -2,8 +2,29 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
+import dynamic from "next/dynamic";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// react-force-graph-2d uses canvas + window APIs — load client-only.
+const EntityGraphView = dynamic(() => import("@/components/EntityGraphView"), { ssr: false });
+
+interface EntityRow {
+  id: string;
+  canonical_name: string;
+  entity_type: string;
+  aliases: string[];
+  mention_count: number;
+  source_count: number;
+  sources: { id: string; count: number }[];
+  top_docs: { title: string; source: string; url: string }[];
+}
+
+interface EntityLink {
+  source: string;
+  target: string;
+  weight: number;
+}
 
 interface GraphData {
   totals: { docs: number; chunks: number; decisions: number };
@@ -11,7 +32,18 @@ interface GraphData {
   clusters: { name: string; count: number; sources: string[]; docs: { title: string; source: string; url: string }[] }[];
   people: { email: string; doc_count: number }[];
   recent_docs: { title: string; source: string; url: string; created_at: string }[];
+  entities?: EntityRow[];
+  entity_links?: EntityLink[];
 }
+
+const ENTITY_TYPE_META: Record<string, { label: string; color: string }> = {
+  project: { label: "Project", color: "bg-purple-50 text-purple-700 border-purple-100" },
+  person:  { label: "Person",  color: "bg-blue-50 text-blue-700 border-blue-100" },
+  feature: { label: "Feature", color: "bg-pink-50 text-pink-700 border-pink-100" },
+  tool:    { label: "Tool",    color: "bg-amber-50 text-amber-700 border-amber-100" },
+  acronym: { label: "Acronym", color: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+  other:   { label: "Other",   color: "bg-gray-50 text-gray-600 border-gray-100" },
+};
 
 const SOURCE_META: Record<string, { label: string; color: string; bg: string; dot: string }> = {
   drive:    { label: "Google Drive",  color: "text-orange-600", bg: "bg-orange-50 border-orange-100",  dot: "bg-orange-400" },
@@ -36,6 +68,9 @@ export default function GraphPage() {
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
+  const [expandedEntity, setExpandedEntity] = useState<string | null>(null);
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>("all");
+  const [entityViewMode, setEntityViewMode] = useState<"list" | "graph">("list");
 
   useEffect(() => {
     (async () => {
@@ -163,6 +198,148 @@ export default function GraphPage() {
                 ))}
               </div>
             </section>
+
+            {/* Entities — cross-source connective tissue */}
+            {data.entities && data.entities.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                  <div>
+                    <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest">Linked across sources</h2>
+                    <p className="text-[12px] text-gray-400 mt-1">
+                      {entityViewMode === "graph"
+                        ? "Mind map — entities branch out from the center, grouped by type. Node size = mention count."
+                        : "Entities mentioned in multiple sources — ranked by cross-source coverage."}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    {/* View toggle */}
+                    <div className="flex bg-gray-100 rounded-full p-0.5">
+                      <button
+                        onClick={() => setEntityViewMode("list")}
+                        className={`text-[11px] font-bold px-3 py-1 rounded-full transition-colors ${
+                          entityViewMode === "list" ? "bg-white text-foreground shadow-sm" : "text-gray-500"
+                        }`}
+                      >
+                        List
+                      </button>
+                      <button
+                        onClick={() => setEntityViewMode("graph")}
+                        className={`text-[11px] font-bold px-3 py-1 rounded-full transition-colors ${
+                          entityViewMode === "graph" ? "bg-white text-foreground shadow-sm" : "text-gray-500"
+                        }`}
+                      >
+                        Mind map
+                      </button>
+                    </div>
+                    {entityViewMode === "list" && (
+                      <div className="flex gap-1">
+                        {["all", "project", "person", "feature", "tool", "acronym"].map((t) => (
+                          <button
+                            key={t}
+                            onClick={() => setEntityTypeFilter(t)}
+                            className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
+                              entityTypeFilter === t
+                                ? "bg-foreground text-white border-foreground"
+                                : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                            }`}
+                          >
+                            {t === "all" ? "All" : ENTITY_TYPE_META[t]?.label || t}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {entityViewMode === "graph" && (
+                  <EntityGraphView
+                    entities={data.entities.map((e) => ({
+                      id: e.id,
+                      canonical_name: e.canonical_name,
+                      entity_type: e.entity_type,
+                      mention_count: e.mention_count,
+                      source_count: e.source_count,
+                    }))}
+                    links={data.entity_links || []}
+                  />
+                )}
+
+                {entityViewMode === "list" && (
+                <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {data.entities
+                    .filter((e) => entityTypeFilter === "all" || e.entity_type === entityTypeFilter)
+                    .map((ent) => {
+                      const typeMeta = ENTITY_TYPE_META[ent.entity_type] || ENTITY_TYPE_META.other;
+                      const isExpanded = expandedEntity === ent.id;
+                      return (
+                        <div key={ent.id} className="bg-white rounded-2xl border border-gray-100 p-4 hover:border-accent/30 transition-all">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="font-black text-foreground text-base truncate">{ent.canonical_name}</span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${typeMeta.color}`}>
+                                  {typeMeta.label}
+                                </span>
+                              </div>
+                              {ent.aliases.length > 0 && (
+                                <div className="text-[11px] text-gray-400 truncate">
+                                  also: {ent.aliases.slice(0, 3).join(", ")}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Mentions</div>
+                              <div className="text-lg font-black text-foreground leading-none">{ent.mention_count}</div>
+                            </div>
+                          </div>
+                          <div className="flex gap-1.5 flex-wrap mb-3">
+                            {ent.sources.map((s) => {
+                              const meta = SOURCE_META[s.id] || SOURCE_META.upload;
+                              return (
+                                <span key={s.id} className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${meta.bg} ${meta.color}`}>
+                                  {meta.label} · {s.count}
+                                </span>
+                              );
+                            })}
+                          </div>
+                          {ent.top_docs.length > 0 && (
+                            <button
+                              onClick={() => setExpandedEntity(isExpanded ? null : ent.id)}
+                              className="text-[11px] font-bold text-accent hover:underline"
+                            >
+                              {isExpanded ? "Hide docs ▲" : `See ${ent.top_docs.length} doc${ent.top_docs.length === 1 ? "" : "s"} ▼`}
+                            </button>
+                          )}
+                          {isExpanded && (
+                            <div className="mt-3 space-y-1.5">
+                              {ent.top_docs.map((doc, i) => (
+                                <div key={i} className="flex items-start gap-2">
+                                  <SourceDot source={doc.source} />
+                                  {doc.url ? (
+                                    <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-[12px] text-gray-600 hover:text-accent line-clamp-1 leading-snug">
+                                      {doc.title}
+                                    </a>
+                                  ) : (
+                                    <span className="text-[12px] text-gray-500 line-clamp-1 leading-snug">{doc.title}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+                {data.entities.filter((e) => entityTypeFilter === "all" || e.entity_type === entityTypeFilter).length === 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
+                    <p className="text-sm text-gray-400">No entities of this type yet. They'll appear as documents are ingested.</p>
+                  </div>
+                )}
+                </>
+                )}
+              </section>
+            )}
 
             {/* Recent ingestions */}
             <section>

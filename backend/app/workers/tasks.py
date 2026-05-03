@@ -327,6 +327,25 @@ def process_guardian_check(
         db.close()
 
 
+@celery_app.task(bind=True, max_retries=2)
+def extract_entities_for_document(self, document_id: str):
+    """Build the entity graph for a freshly-ingested document.
+
+    Runs in the background after chunk_and_store completes so the user-facing
+    ingest call returns immediately. Best-effort — failures are logged but not
+    re-raised aggressively (entity graph is enrichment, not core ingestion).
+    """
+    try:
+        from app.services.entity_extractor import process_document_entities
+        written = process_document_entities(document_id)
+        logger.info(f"Entity graph for {document_id}: {written} mentions written")
+        return written
+    except Exception as e:
+        logger.error(f"Entity extraction failed for doc {document_id}: {e}")
+        # One retry for transient LLM/db blips, then give up — don't block the queue
+        raise self.retry(exc=e, countdown=120)
+
+
 @celery_app.task(bind=True, max_retries=3)
 def reingest_clickup_task(self, task_id: str, space_id: str = "", list_id: str = ""):
     from app.services.settings_service import is_source_enabled

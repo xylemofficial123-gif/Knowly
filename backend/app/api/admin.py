@@ -619,12 +619,88 @@ def get_graph_data(actor_email: str = Depends(get_current_user_email)):
         # Decisions are globally derived; ACL-filtered decision graph can be added later.
         total_decisions = db.query(DecisionRecord).count()
 
+        # Entity graph — the cross-source connective tissue. Built by
+        # process_document_entities (one LLM call per ingested doc + gazetteer).
+        # ACL filter: only count mentions whose chunk lives in a doc this user can see.
+        from app.models import Entity, EntityMention, EntityCooccurrence
+        entity_rows = []
+        entity_links: list = []
+        try:
+            entities_all = db.query(Entity).all()
+            mentions_for_visible = (
+                db.query(EntityMention)
+                .filter(EntityMention.document_id.in_(visible_doc_ids))
+                .all()
+                if visible_doc_ids else []
+            )
+
+            # Aggregate per entity: mention count + source breakdown + top docs
+            agg: dict = {}
+            doc_lookup = {d.id: d for d in visible_docs}
+            for m in mentions_for_visible:
+                bucket = agg.setdefault(
+                    m.entity_id,
+                    {"mention_count": 0, "sources": {}, "doc_ids": set()},
+                )
+                bucket["mention_count"] += 1
+                src = m.source or "unknown"
+                bucket["sources"][src] = bucket["sources"].get(src, 0) + 1
+                if m.document_id is not None:
+                    bucket["doc_ids"].add(m.document_id)
+
+            for ent in entities_all:
+                stats = agg.get(ent.id)
+                if not stats:
+                    continue
+                top_docs = []
+                for doc_id in list(stats["doc_ids"])[:5]:
+                    d = doc_lookup.get(doc_id)
+                    if d:
+                        top_docs.append({"title": d.title or "(untitled)", "source": d.source, "url": d.url or ""})
+                entity_rows.append({
+                    "id": str(ent.id),
+                    "canonical_name": ent.canonical_name,
+                    "entity_type": ent.entity_type,
+                    "aliases": list(ent.aliases or []),
+                    "mention_count": stats["mention_count"],
+                    "source_count": len(stats["sources"]),
+                    "sources": [{"id": s, "count": c} for s, c in sorted(stats["sources"].items(), key=lambda x: -x[1])],
+                    "top_docs": top_docs,
+                })
+            # Sort: most-cross-source first, then most-mentioned
+            entity_rows.sort(key=lambda e: (-e["source_count"], -e["mention_count"]))
+            entity_rows = entity_rows[:60]
+
+            # Entity-to-entity edges — only between entities the user can see.
+            visible_entity_ids = {row["id"] for row in entity_rows}
+            if visible_entity_ids:
+                edges = (
+                    db.query(EntityCooccurrence)
+                    .order_by(EntityCooccurrence.weight.desc())
+                    .limit(400)
+                    .all()
+                )
+                for e in edges:
+                    a_id = str(e.entity_a_id)
+                    b_id = str(e.entity_b_id)
+                    if a_id in visible_entity_ids and b_id in visible_entity_ids:
+                        entity_links.append({"source": a_id, "target": b_id, "weight": float(e.weight or 0)})
+                # Cap to top 200 by weight after filtering for visibility
+                entity_links.sort(key=lambda x: -x["weight"])
+                entity_links = entity_links[:200]
+        except Exception as e:
+            logger.warning(f"Entity graph aggregation failed: {e}")
+            entity_rows = []
+            entity_links = []
+
         return {
             "totals": {"docs": total_docs, "chunks": total_chunks, "decisions": total_decisions},
             "sources": sources,
             "clusters": clusters,
             "people": people,
             "recent_docs": recent_docs,
+            "entities": entity_rows,
+            "entity_links": entity_links,
         }
     finally:
         db.close()

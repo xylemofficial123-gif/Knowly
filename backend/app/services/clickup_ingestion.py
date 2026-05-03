@@ -160,7 +160,28 @@ def ingest_task(task: dict, acl: list[str]):
         url=url,
         acl=acl,
         title=name,
+        doc_status=_map_clickup_status(status),
     )
+
+
+# ClickUp's `status.status` is free-form per workspace ("to do", "Done", "In Review", etc.)
+# Map common variants to our draft / in_review / finalized buckets. Unknown → "unknown".
+_CLICKUP_FINALIZED = {"closed", "complete", "completed", "done", "resolved", "shipped"}
+_CLICKUP_REVIEW = {"review", "in review", "qa", "in qa", "testing", "approval", "pending review"}
+_CLICKUP_DRAFT = {"to do", "todo", "open", "in progress", "in-progress", "wip", "backlog", "blocked"}
+
+
+def _map_clickup_status(status: str) -> str:
+    if not status:
+        return "unknown"
+    s = status.strip().lower()
+    if s in _CLICKUP_FINALIZED:
+        return "finalized"
+    if s in _CLICKUP_REVIEW:
+        return "in_review"
+    if s in _CLICKUP_DRAFT:
+        return "draft"
+    return "unknown"
 
 
 def ingest_all_clickup(team_id: str = None):

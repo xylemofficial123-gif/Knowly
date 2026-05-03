@@ -113,6 +113,29 @@ def _get_chunk_date(payload: dict) -> Optional[datetime]:
     return parse_date_from_text(payload.get("title", ""))
 
 
+def fetch_chunks_by_ids(ids: List[str], base_score: float = 0.65) -> list:
+    """Fetch Qdrant points by id, returning ScoredPoint-like objects so they
+    plug into the same downstream re-ranking pipeline as ``search_chunks``
+    results. Used by the entity-graph augmentation in the Research Agent."""
+    if not ids:
+        return []
+    try:
+        records = qdrant.retrieve(
+            collection_name=COLLECTION,
+            ids=ids,
+            with_payload=True,
+        )
+    except Exception as e:
+        logger.warning(f"fetch_chunks_by_ids failed: {e}")
+        return []
+
+    from types import SimpleNamespace
+    return [
+        SimpleNamespace(id=r.id, payload=r.payload, score=base_score)
+        for r in records
+    ]
+
+
 def search_chunks(
     query_vector: list[float],
     limit: int = 24,

@@ -105,6 +105,16 @@ def chunk_and_store(
 
         db.commit()
         logger.info(f"Stored {len(chunks)} chunks for document {source_id}")
+
+        # Fire background entity-graph build (gazetteer + 1 LLM call per doc).
+        # Non-blocking — ingestion returns immediately. If Celery isn't
+        # reachable, fall through silently — the graph is enrichment.
+        try:
+            from app.workers.tasks import extract_entities_for_document
+            extract_entities_for_document.delay(str(doc_id))
+        except Exception as e:
+            logger.warning(f"Could not queue entity extraction for {source_id}: {e}")
+
         return chunk_ids
 
     except Exception as e:

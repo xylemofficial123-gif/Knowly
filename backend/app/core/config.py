@@ -57,6 +57,8 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = str(ENV_FILE)
+        # Frontend-only vars (NEXT_PUBLIC_*) live in the same .env; ignore them here
+        extra = "ignore"
 
     @property
     def no_index_channels(self) -> list[str]:

@@ -169,6 +169,65 @@ class ExclusionRule(Base):
     __table_args__ = (UniqueConstraint("source_type", "identifier", name="uq_exclusion_rule"),)
 
 
+class Entity(Base):
+    """A canonical entity (project, person, feature, tool) referenced across sources.
+
+    The graph is two tables: `entities` holds the canonical name + aliases, and
+    `entity_mentions` links entities to the chunks where they appear. Together they
+    let us pull related content from any source when a user queries an entity, even
+    when wording differs ("Atlas" vs "Project Atlas" vs "the launch").
+    """
+    __tablename__ = "entities"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    canonical_name = Column(String, nullable=False, index=True)
+    # project | person | feature | tool | acronym
+    entity_type = Column(String, default="other", nullable=False, index=True)
+    aliases = Column(JSON, default=list)
+    description = Column(Text, nullable=True)
+    created_by = Column(String, nullable=True)  # "ingestion" | "admin" | user email
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("canonical_name", "entity_type", name="uq_entity_canonical"),
+    )
+
+
+class EntityMention(Base):
+    """Links an entity to a specific chunk where it was mentioned."""
+    __tablename__ = "entity_mentions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entity_id = Column(UUID(as_uuid=True), ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True)
+    chunk_id = Column(UUID(as_uuid=True), ForeignKey("chunks.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=True, index=True)
+    source = Column(String, nullable=True, index=True)  # slack | drive | meet | clickup | calendar
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("entity_id", "chunk_id", name="uq_entity_mention"),
+    )
+
+
+class EntityCooccurrence(Base):
+    """Edge in the knowledge graph: how often two entities appear together in a chunk.
+
+    Pair order is canonicalized (entity_a_id < entity_b_id by string compare) so each
+    unordered pair has exactly one row. Weight is incremented every time both
+    entities are detected in the same chunk during ingestion.
+    """
+    __tablename__ = "entity_cooccurrences"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entity_a_id = Column(UUID(as_uuid=True), ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_b_id = Column(UUID(as_uuid=True), ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True)
+    weight = Column(Float, default=0.0, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("entity_a_id", "entity_b_id", name="uq_entity_cooccurrence_pair"),
+    )
+
+
 class GuardianAlert(Base):
     """Log of every Guardian Agent check that produced a match."""
     __tablename__ = "guardian_alerts"

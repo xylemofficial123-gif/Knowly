@@ -116,6 +116,56 @@ class ResearchAgent(BaseAgent):
                     seen_chunk_ids.add(chunk_id)
                     all_candidates.append((i, query, r))
 
+        # Phase 1.4: Knowledge-graph augmentation — pull chunks linked to entities
+        # in the user's query from any source. This is the "connective tissue":
+        # if the query mentions "Atlas", we pull the Slack thread + ClickUp task +
+        # Drive doc that all mention Atlas, even if their wording differed enough
+        # that vector search missed them.
+        try:
+            from app.services.entity_extractor import (
+                find_entities_in_query,
+                get_chunks_for_entities,
+            )
+            from app.services.embeddings import fetch_chunks_by_ids
+
+            matched_entities = find_entities_in_query(context.original_query)
+            if matched_entities:
+                graph_chunk_ids = get_chunks_for_entities(
+                    [e["id"] for e in matched_entities],
+                    limit_per_entity=8,
+                )
+                # Skip chunks already retrieved by vector search; cap total
+                graph_chunk_ids = [cid for cid in graph_chunk_ids if cid not in seen_chunk_ids][:8]
+                if graph_chunk_ids:
+                    graph_results = fetch_chunks_by_ids(graph_chunk_ids, base_score=0.65)
+                    enabled_sources = get_enabled_sources()
+                    ent_label = ", ".join(e["canonical_name"] for e in matched_entities[:3])
+                    graph_query_label = f"[graph: {ent_label}]"
+                    graph_idx = len(queries)
+                    added = 0
+                    for r in graph_results:
+                        src = r.payload.get("source", "unknown")
+                        if src not in enabled_sources:
+                            continue
+                        if not user_can_see_chunk(context.user_email, r.payload.get("acl", [])):
+                            acl_blocked_count += 1
+                            continue
+                        if topic_filter_enabled and topic_keywords and not self._matches_topic(r, topic_keywords):
+                            continue
+                        cid = str(r.id)
+                        if cid in seen_chunk_ids:
+                            continue
+                        seen_chunk_ids.add(cid)
+                        all_candidates.append((graph_idx, graph_query_label, r))
+                        added += 1
+                    if added:
+                        logger.info(
+                            f"Graph: query matched {len(matched_entities)} entities, "
+                            f"added {added} cross-source chunks"
+                        )
+        except Exception as e:
+            logger.warning(f"Graph augmentation skipped: {e}")
+
         # Phase 1.5: Source-type boosting — prefer transcript content over calendar stubs
         # for queries about meeting content (what was discussed, speakers, decisions)
         if context.query_type in ("meeting_summary", "timeline", "multi_hop", "action_items"):
