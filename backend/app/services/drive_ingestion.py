@@ -481,9 +481,8 @@ def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
         "doc_status": doc_status,
     }
 
-    # Workspace-wide visibility policy:
-    # any admin-connected Drive content is indexed as public for all users.
-    acl = ["public"]
+    # Fetch real permissions from Drive API
+    acl = _get_file_permissions(service, file_id)
 
     chunk_and_store(
         source="drive",

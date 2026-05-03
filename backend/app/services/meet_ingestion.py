@@ -364,9 +364,8 @@ def ingest_meet_transcript(file_info: dict) -> dict:
         "created_at": file_info.get("createdTime", ""),
     }
 
-    # Workspace-wide visibility policy:
-    # any admin-connected Meet content is indexed as public for all users.
-    acl = ["public"]
+    # Store in knowledge base
+    acl = attendees if attendees else ["public"]
 
     # Store the full enriched text (decisions + actions + transcript)
     chunk_and_store(
@@ -639,7 +638,7 @@ def ingest_transcript(content: str, title: str, url: str, attendees: list[str], 
         source_id=source_id,
         text=enriched_text,
         url=url,
-        acl=["public"],
+        acl=attendees if attendees else ["public"],
         title=title,
         extra_metadata=metadata,
     )
