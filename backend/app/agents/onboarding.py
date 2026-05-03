@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 
 from app.agents.base import BaseAgent, AgentContext, AgentResult
+from app.agents.research import ResearchAgent
 from app.services.llm import generate
 from app.services.embeddings import embed_text, search_chunks
 from app.core.acl import user_can_see_chunk
@@ -68,6 +69,11 @@ class OnboardingAgent(BaseAgent):
         """Build a comprehensive onboarding briefing."""
         query = context.original_query
         project_name = self._extract_project_name(query)
+
+        # For project-focused onboarding, reuse the same logic as the main chatbot
+        # (ResearchAgent retrieval + synthesis) to avoid divergence.
+        if project_name:
+            return self._run_project_onboarding_via_research(context, project_name)
 
         # Search from multiple angles for comprehensive coverage
         if project_name:
@@ -171,16 +177,6 @@ class OnboardingAgent(BaseAgent):
                 confidence=0.0,
             )
 
-        # Minimal onboarding "time machine" mode with predictable output blocks.
-        if project_name:
-            return self._build_time_machine_response(
-                project_name=project_name,
-                decisions_text=decisions_text,
-                citation_map=citation_map,
-                all_chunks=all_chunks,
-                user_email=context.user_email,
-            )
-
         prompt = ONBOARDING_PROMPT.format(
             question=query,
             decisions=decisions_text or "No formal decisions recorded on this topic.",
@@ -213,6 +209,26 @@ class OnboardingAgent(BaseAgent):
             ],
             confidence=0.7 if source_counter > 3 else 0.5,
         )
+
+    def _run_project_onboarding_via_research(self, context: AgentContext, project_name: str) -> AgentResult:
+        """Route project onboarding through ResearchAgent (same path as Oracle/main chatbot)."""
+        research = ResearchAgent()
+        project_query = (
+            f"What is {project_name}? Include: current status, key timeline, and blockers for {project_name} only."
+        )
+        project_ctx = AgentContext(
+            user_email=context.user_email,
+            original_query=project_query,
+            query_type="onboarding",
+            sub_queries=[],
+            metadata=dict(context.metadata or {}),
+        )
+        result = research.run(project_ctx)
+        result.agent_name = self.name
+        result.reasoning_steps = [
+            f"Delegated project onboarding for '{project_name}' to ResearchAgent retrieval pipeline"
+        ] + result.reasoning_steps
+        return result
 
     def _extract_project_name(self, query: str) -> str:
         q = query.strip()
