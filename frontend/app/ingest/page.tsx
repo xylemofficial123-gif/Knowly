@@ -765,29 +765,27 @@ export default function AdminPage() {
   const triggerSync = async () => {
     if (!settings || syncing) return;
     const enabled = settings.enabled_sources || [];
-    const source =
-      enabled.includes("slack") ? "slack" :
-      enabled.includes("clickup") ? "clickup" :
-      enabled.includes("meet") ? "meet" :
-      enabled.includes("calendar") ? "calendar" :
-      enabled.includes("drive") ? "drive" :
-      "all";
-
-    const payload: { source: string; folder_ids?: string[] } = { source };
-    if (source === "drive" && settings.google_drive_folder_ids?.length) {
+    const payload: { source: string; folder_ids?: string[] } = { source: "all" };
+    if (enabled.includes("drive") && settings.google_drive_folder_ids?.length) {
       payload.folder_ids = settings.google_drive_folder_ids;
     }
 
     try {
       setSyncing(true);
-      await fetch(`${API_URL}/api/ingest/trigger`, {
+      const res = await fetch(`${API_URL}/api/ingest/trigger`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      alert(`Ingestion triggered for ${source}. Check backend logs for progress.`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = data?.detail || `HTTP ${res.status}`;
+        throw new Error(detail);
+      }
+      alert("Ingestion triggered for all enabled sources. Check backend logs for progress.");
     } catch (e) {
       console.error("Failed to trigger ingestion:", e);
+      alert(`Failed to trigger ingestion: ${e instanceof Error ? e.message : "Unknown error"}`);
     } finally {
       setSyncing(false);
     }
