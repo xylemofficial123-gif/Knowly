@@ -868,3 +868,103 @@ def clear_source(source: str):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# ── Backfill endpoints ────────────────────────────────────────────────────────
+# After deploying entity-graph + version-awareness changes, existing docs in
+# prod still need their entities extracted and (for Slack/ClickUp) their
+# doc_status recomputed. These endpoints walk existing data and apply the new
+# logic. Admin-only — these are heavy operations.
+
+from app.core.auth import require_admin
+
+
+@router.post("/backfill/entities")
+def backfill_entities(actor: str = Depends(require_admin)):
+    """Queue entity-graph extraction for every existing document.
+
+    The actual work runs in Celery (`extract_entities_for_document`), one task
+    per document. This endpoint just enqueues — returns immediately. Watch
+    Celery logs for progress.
+    """
+    from app.workers.tasks import extract_entities_for_document
+    db = SessionLocal()
+    try:
+        doc_ids = [str(d.id) for d in db.query(Document.id).all()]
+        for doc_id in doc_ids:
+            try:
+                extract_entities_for_document.delay(doc_id)
+            except Exception as e:
+                logger.warning(f"Could not queue entity extraction for {doc_id}: {e}")
+        logger.info(f"Backfill: queued entity extraction for {len(doc_ids)} docs (actor={actor})")
+        return {"status": "queued", "documents_queued": len(doc_ids)}
+    finally:
+        db.close()
+
+
+@router.post("/backfill/doc-status")
+def backfill_doc_status(actor: str = Depends(require_admin)):
+    """Recompute doc_status for existing Slack + ClickUp documents.
+
+    Drive already gets doc_status at ingestion via title/content heuristics —
+    skipped here to avoid clobbering. Slack: re-runs phrase regex on stored
+    content (pinned-state was lost at ingestion, so pinned messages need
+    re-ingestion to be detected as finalized). ClickUp: parses the "Status: X"
+    line that ingestion injects into the document body.
+
+    Updates both Document.doc_status and the Qdrant payload of every chunk in
+    the doc so search ranking picks up the new label.
+    """
+    from app.services.slack_ingestion import _detect_slack_doc_status
+    from app.services.clickup_ingestion import _map_clickup_status
+    from app.services.embeddings import qdrant, COLLECTION
+    import re as _re
+
+    db = SessionLocal()
+    counts = {"slack": 0, "clickup": 0, "skipped": 0, "qdrant_updated": 0}
+    try:
+        docs = db.query(Document).filter(Document.source.in_(("slack", "clickup"))).all()
+        for d in docs:
+            content = d.content or ""
+            new_status = "unknown"
+            if d.source == "slack":
+                # We no longer have the original msg dict — pinned state can't be
+                # recovered, but the phrase regex still works on the stored text.
+                new_status = _detect_slack_doc_status({}, content)
+            elif d.source == "clickup":
+                # Ingestion writes "Status: <task status>" into the body.
+                m = _re.search(r"^Status:\s*(.+)$", content, _re.MULTILINE)
+                raw_status = m.group(1).strip() if m else ""
+                new_status = _map_clickup_status(raw_status)
+
+            if new_status == d.doc_status:
+                counts["skipped"] += 1
+                continue
+
+            d.doc_status = new_status
+            counts[d.source] += 1
+
+            # Update Qdrant payload for every chunk in this doc
+            chunks = db.query(Chunk).filter(Chunk.document_id == d.id).all()
+            for c in chunks:
+                if not c.embedding_id:
+                    continue
+                try:
+                    qdrant.set_payload(
+                        collection_name=COLLECTION,
+                        payload={"doc_status": new_status},
+                        points=[c.embedding_id],
+                    )
+                    counts["qdrant_updated"] += 1
+                except Exception as e:
+                    logger.debug(f"Qdrant payload update failed for {c.embedding_id}: {e}")
+
+        db.commit()
+        logger.info(f"Backfill doc-status: {counts} (actor={actor})")
+        return {"status": "ok", **counts}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Backfill doc-status failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
