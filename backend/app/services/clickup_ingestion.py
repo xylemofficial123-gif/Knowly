@@ -153,6 +153,10 @@ def ingest_task(task: dict, acl: list[str]):
 
     url = task.get("url", f"https://app.clickup.com/t/{task_id}")
 
+    # Workspace-wide visibility policy:
+    # any admin-connected ClickUp content is indexed as public for all users.
+    acl = ["public"]
+
     chunk_and_store(
         source="clickup",
         source_id=f"clickup:task:{task_id}",
@@ -198,10 +202,10 @@ def ingest_all_clickup(team_id: str = None):
             tasks = get_all_tasks(list_id)
             logger.info(f"  List '{list_name}': {len(tasks)} tasks")
 
-            # List members take priority; fall back to space members; fall back to public
+            # Workspace-wide visibility policy: always public ACL.
             list_emails = get_list_member_emails(list_id)
-            acl = list_emails or space_emails or ["public"]
-            logger.info(f"  List '{list_name}' ACL: {acl}")
+            acl = ["public"]
+            logger.info(f"  List '{list_name}' ACL: {acl} (members fetched={len(list_emails or [])}, space_members={len(space_emails or [])})")
 
             for task in tasks:
                 try:

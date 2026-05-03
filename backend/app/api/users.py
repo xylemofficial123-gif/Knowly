@@ -30,7 +30,7 @@ from app.models import User, Group, GroupMembership, Document
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["users-groups"])
-BOOTSTRAP_ADMIN_EMAILS = {"chaitranarem@gmail.com", "sachin.kurup@seedlinglabs.com"}
+BOOTSTRAP_ADMIN_EMAILS = {"xylemofficial123@gmail.com", "sachin.kurup@seedlinglabs.com"}
 
 
 def ensure_bootstrap_admins() -> None:

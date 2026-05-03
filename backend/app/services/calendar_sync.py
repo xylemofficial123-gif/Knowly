@@ -144,15 +144,9 @@ def sync_calendar(user_email: str = None) -> int:
         # Build text representation
         text = _format_event_text(event)
 
-        # Build ACL from attendees
+        # Workspace-wide visibility policy:
+        # any admin-connected Calendar content is indexed as public for all users.
         acl = ["public"]
-        attendees = event.get("attendees", [])
-        if attendees:
-            acl = [a.get("email", "") for a in attendees if a.get("email")]
-            # Also add organizer
-            org_email = event.get("organizer", {}).get("email", "")
-            if org_email and org_email not in acl:
-                acl.append(org_email)
 
         # URL to the event
         url = event.get("htmlLink", "")

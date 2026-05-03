@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -97,6 +98,7 @@ interface GroupDocumentRecord {
 export default function AdminPage() {
   const { user } = useUser();
   const { getToken } = useAuth();
+  const router = useRouter();
   const currentUserEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
 
   const authedFetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -180,7 +182,7 @@ export default function AdminPage() {
   const [newRuleIdentifier, setNewRuleIdentifier] = useState("");
   const [newRuleName, setNewRuleName] = useState("");
   const [newRuleReason, setNewRuleReason] = useState("");
-  const [selfRole, setSelfRole] = useState("member");
+  const [selfRole, setSelfRole] = useState<string | null>(null);
   const currentUserRole = selfRole || users.find(
     (u) => u.email.toLowerCase() === currentUserEmail.toLowerCase()
   )?.role || "member";
@@ -699,6 +701,12 @@ export default function AdminPage() {
   useEffect(() => {
     fetchSelfRole();
   }, [currentUserEmail]);
+
+  useEffect(() => {
+    if (selfRole === "member") {
+      router.replace("/");
+    }
+  }, [router, selfRole]);
 
   const handleReview = async (id: string, action: "approve" | "reject") => {
     try {

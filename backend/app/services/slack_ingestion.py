@@ -128,7 +128,9 @@ def format_message_for_storage(msg: dict, channel_id: str, acl: list[str] = None
         "source_id": source_id,
         "text": text,
         "url": url,
-        "acl": acl if acl else ["public"],
+        # Workspace-wide visibility policy:
+        # any admin-connected Slack content is indexed as public for all users.
+        "acl": ["public"],
         "slack_user_id": user,
         "title": f"Slack message in #{channel_id}",
         "thread_ts": thread_ts,

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useUser, useClerk } from "@clerk/nextjs";
+import { useUser, useClerk, useAuth } from "@clerk/nextjs";
 
 interface SidebarItem {
   id: string;
@@ -24,7 +24,10 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { getToken } = useAuth();
   const [recentQueries, setRecentQueries] = useState<{ text: string, time: string }[]>([]);
+  const [selfRole, setSelfRole] = useState("member");
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   useEffect(() => {
     const loadQueries = () => {
@@ -42,6 +45,29 @@ export default function Sidebar() {
     window.addEventListener("storage", loadQueries);
     return () => window.removeEventListener("storage", loadQueries);
   }, []);
+
+  useEffect(() => {
+    const fetchSelfRole = async () => {
+      const currentUserEmail = user?.emailAddresses?.[0]?.emailAddress;
+      if (!currentUserEmail) return;
+
+      try {
+        const token = await getToken();
+        const headers = new Headers();
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+        const res = await fetch(`${API_URL}/api/users/${encodeURIComponent(currentUserEmail)}`, { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.role) setSelfRole(data.role);
+      } catch (e) {
+        console.error("Failed to fetch current user role:", e);
+      }
+    };
+
+    fetchSelfRole();
+  }, [API_URL, getToken, user]);
+
+  const visibleNavItems = navItems.filter((item) => item.id !== "ingest" || selfRole !== "member");
 
   const handleQueryClick = (item: any) => {
     window.dispatchEvent(new CustomEvent("xylem_query", { detail: item }));
@@ -73,7 +99,7 @@ export default function Sidebar() {
         <section>
           <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">Navigate</p>
           <nav className="space-y-1">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <Link
                 key={item.id}
                 href={item.href}
