@@ -619,8 +619,17 @@ export default function AdminPage() {
   const connectGoogle = async () => {
     if (!currentUserEmail) return;
     try {
-      const res = await fetch(`${API_URL}/api/oauth/google/authorize?user_email=${encodeURIComponent(currentUserEmail)}`);
+      const res = await authedFetch(`${API_URL}/api/oauth/google/authorize?user_email=${encodeURIComponent(currentUserEmail)}`);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        alert(detail?.detail || `Failed to start Google connection (${res.status})`);
+        return;
+      }
       const data = await res.json();
+      if (!data?.url) {
+        alert("Backend did not return a Google OAuth URL.");
+        return;
+      }
       window.location.href = data.url;
     } catch (e) {
       console.error("Failed to get Google auth URL:", e);
@@ -630,7 +639,7 @@ export default function AdminPage() {
   const disconnectGoogle = async () => {
     if (!currentUserEmail) return;
     try {
-      await fetch(`${API_URL}/api/oauth/google/disconnect?user_email=${encodeURIComponent(currentUserEmail)}`, { method: "DELETE" });
+      await authedFetch(`${API_URL}/api/oauth/google/disconnect?user_email=${encodeURIComponent(currentUserEmail)}`, { method: "DELETE" });
       fetchGoogleStatus();
     } catch (e) {
       console.error("Failed to disconnect Google:", e);
