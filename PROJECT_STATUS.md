@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-05-03 (Entity Linking / Knowledge Graph: gazetteer + doc-level LLM extraction, Research Agent cross-source graph augmentation)
+> **Last updated**: 2026-05-04 (Acronym buster wired into query path, Meet citation timestamps)
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -89,7 +89,7 @@ FastAPI Backend
 | User & Group management | DONE | Full CRUD; group memberships with group_admin role; frontend Users + Groups tabs |
 | Meet discrepancy detection | DONE | Compares new meeting decisions vs active DecisionRecords (embed + LLM classify); flags contradictions, updates, reconfirmations |
 | Context optimization | DONE | chunk_type field (summary/decision/action_item/full_text); summary chunks boosted +0.12, decision +0.10; meeting summaries stored as separate priority chunks |
-| RAG with citations | DONE | Semantic search → ACL filter → re-rank → LLM synthesis, `[N]` citation format |
+| RAG with citations | DONE | Semantic search → ACL filter → re-rank → LLM synthesis, `[N]` citation format. Meet citations include the segment timestamp ("Standup 14/02 at 14:32"): VTT/SRT ingestion now embeds `[mm:ss]` markers inline per turn (`_format_timestamp` in meet_ingestion); Research/Oracle citation builders extract the first marker per chunk and append to the display label. |
 | Multi-turn conversation | DONE | Session IDs, conversation history in Router + Research prompts, chatbot UI |
 | Temporal intelligence | DONE | LLM extracts date ranges from natural language ("last week", "yesterday"), freshness boost for recency queries |
 | Topic filtering | DONE | Router extracts keywords, Research Agent filters chunks to isolate specific meetings/topics |
@@ -101,7 +101,7 @@ FastAPI Backend
 | IST timestamps | DONE | All dates/times in DD/MM/YYYY IST (GMT+5:30) via `app/core/timezone.py` |
 | Speaker attribution | DONE | Meeting summaries attribute statements to specific people (who said what). LLM extracts `raised_by`, `assigned_by`, `other_contributors` per discussion point. |
 | Source-type boosting | DONE | Meet/transcript chunks boosted 1.3x, calendar chunks penalized 0.5x for meeting content queries |
-| Acronym buster | DONE | Glossary + AI-powered term lookup |
+| Acronym buster | DONE | Glossary + AI-powered term lookup. Also auto-invoked from Oracle/Research query path: `extract_acronyms_from_query` finds non-universal uppercase tokens (LSQ, ICP, SOC2), `glossary_for_query` looks up via 512-entry LRU cache, definitions injected as a Glossary section in the LLM prompt so answers auto-define internal jargon. |
 | Cross-source redundancy prevention | DONE | Guardian Agent: threshold 0.78, dedup by document, ACL-filtered, LLM alert, Slack thread reply + ClickUp comment delivery, `guardian_alerts` audit table, `POST /api/guardian/check` + `GET /api/guardian/alerts` |
 | Entity linking / knowledge graph | DONE | `Entity` + `EntityMention` Postgres tables. Background Celery task `extract_entities_for_document` runs after chunk_and_store: gazetteer-first scan against existing entities, then one LLM call per document to discover new ones (doc-level, not per-chunk). Research Agent's Phase 1.4 augments vector hits with chunks mentioning matched entities from any source — the cross-source connective tissue. ACL-filtered, source-enablement-filtered. |
 | Version awareness (draft vs final) | DONE | `doc_status` field on Document model (draft/in_review/finalized/unknown). Drive: title/content heuristics. ClickUp: maps task `status` field — closed/done/complete → finalized, review/qa → in_review, to_do/in_progress → draft. Slack: heuristic — pinned messages → finalized; "let's go with"/"approved"/"decided" → finalized; "wip"/"thinking about"/"wondering" → draft; otherwise unknown. Drafts penalized 0.6x in search, in_review 0.85x. LLM prompts label draft sources explicitly. |
@@ -439,6 +439,8 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-05-04 | Acronym buster wired into Oracle + Research synthesis prompts. New `extract_acronyms_from_query` (regex for non-universal uppercase tokens, 2-6 chars), `glossary_for_query` (capped at 5 terms, LRU-cached lookup via existing `bust_acronym` flow). Definitions injected as a Glossary section so answers auto-define internal jargon (LSQ, ICP, etc.) without users having to ask separately. Closes PRD feature 5 acronym-buster gap. |
+| 2026-05-04 | Meet citation timestamps. VTT/SRT ingestion in `meet_ingestion.ingest_transcript` now embeds `[mm:ss]` markers inline before each turn (new `_format_timestamp` helper normalizes VTT/SRT formats). Research Agent and Oracle citation builders extract the first marker per chunk via regex and append to the citation display ("Standup 14/02 at 14:32"). Markers survive word-level chunking. Limited to manual VTT/SRT uploads — auto-discovered Gemini summary docs don't have timestamps to surface. Closes PRD feature 3 citation-timestamp gap for the supported path. |
 | 2026-05-03 | Diagnostic endpoint `GET /api/admin/env-check` reports which LLM keys (`GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`) are visible on the **backend** vs the **worker** service, plus a live `generate("ping")` call from the worker. Caught a prod issue: Railway scopes env vars per-service; the worker had no LLM keys, so every Celery-side feature (entity extraction, decision extraction, ghost docs, re-litigation, Guardian, drift detection, Meet/Drive sync LLM steps) was silently failing. After copying keys to the worker, all background features functional. |
 | 2026-05-03 | Backfill admin endpoints: `POST /api/admin/backfill/entities` queues `extract_entities_for_document` for every existing Document so the entity graph populates from prod data; `POST /api/admin/backfill/doc-status` re-runs Slack phrase regex on stored content + parses ClickUp's injected `Status:` line, updates `Document.doc_status` and the Qdrant payload for each chunk so search ranking picks up the new label. Both `require_admin`. Drive is intentionally skipped (already has heuristics at ingestion). |
 | 2026-05-03 | Version awareness extended to ClickUp + Slack: `clickup_ingestion.ingest_task` maps task `status.status` to draft/in_review/finalized; `slack_ingestion.ingest_message` detects pinned messages + decision/draft phrase patterns. Closes the PRD feature 1.3 gap for the team's stack (Drive + ClickUp + Slack). Slack heuristics are intentionally noisy — unmatched messages stay `unknown` rather than being guessed as draft. |

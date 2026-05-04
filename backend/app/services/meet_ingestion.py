@@ -522,6 +522,29 @@ def ingest_drive_transcripts(user_email: str = None) -> int:
 
 # --- Path B: Manual VTT/SRT upload ---
 
+def _format_timestamp(ts: str) -> str:
+    """Normalize a VTT/SRT timestamp ("00:14:32.500" or "14:32,000") to a
+    short display form: "14:32" or "1:14:32" if hours are present.
+    Returns empty string for unparseable input."""
+    if not ts:
+        return ""
+    # Strip subsecond fraction (after . or ,)
+    t = re.split(r"[.,]", ts.strip())[0]
+    parts = t.split(":")
+    try:
+        if len(parts) == 3:
+            h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+            if h > 0:
+                return f"{h}:{m:02d}:{s:02d}"
+            return f"{m}:{s:02d}"
+        if len(parts) == 2:
+            m, s = int(parts[0]), int(parts[1])
+            return f"{m}:{s:02d}"
+    except ValueError:
+        return ""
+    return ""
+
+
 def parse_vtt(content: str) -> list[dict]:
     segments = []
     lines = content.strip().split("\n")
@@ -613,9 +636,17 @@ def ingest_transcript(content: str, title: str, url: str, attendees: list[str], 
 
     turns = group_into_turns(segments)
 
+    # Embed [mm:ss] markers inline so the citation layer can surface the exact
+    # point in the recording where each chunk's content started. Markers
+    # survive the word-level chunker and are extracted by the agents at
+    # citation time (see research.py / oracle.py).
     text_parts = [f"Meeting: {title}", ""]
     for turn in turns:
-        text_parts.append(f"{turn['speaker']}: {turn['text']}")
+        ts = _format_timestamp(turn.get("timestamp", ""))
+        if ts:
+            text_parts.append(f"[{ts}] {turn['speaker']}: {turn['text']}")
+        else:
+            text_parts.append(f"{turn['speaker']}: {turn['text']}")
 
     full_text = "\n".join(text_parts)
 

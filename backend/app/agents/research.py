@@ -2,6 +2,18 @@
 import re
 import logging
 
+# Match the inline timestamp markers we embed in Meet transcripts at ingestion:
+# [14:32], [1:14:32]. First match in a chunk = the moment its content started.
+_MEET_TS_RE = re.compile(r"\[(\d{1,2}(?::\d{2}){1,2})\]")
+
+
+def _first_meet_timestamp(text: str):
+    if not text:
+        return None
+    m = _MEET_TS_RE.search(text)
+    return m.group(1) if m else None
+
+
 from app.agents.base import BaseAgent, AgentContext, AgentResult
 from app.services.llm import generate
 from app.services.embeddings import embed_text, search_chunks
@@ -42,7 +54,7 @@ Content rules:
 Original Question: {question}
 {conversation_context}
 {decision_history}
-Research conducted:
+{glossary}Research conducted:
 {research_results}
 
 Provide a well-structured answer:"""
@@ -222,10 +234,19 @@ class ResearchAgent(BaseAgent):
                 status_tag = f", status: {doc_status}" if doc_status in ("draft", "in_review") else ""
                 research_section += f"[{label}] (title: {title}, source: {source}{status_tag})\n{text}\n\n"
 
+                # Pull the first inline [mm:ss] marker out of meet chunks so
+                # the citation can say "Standup 14/02 at 14:32" instead of
+                # just "Standup 14/02".
+                meet_ts = _first_meet_timestamp(text) if source == "meet" else None
+                display = title or f"{source} document"
+                if meet_ts:
+                    display = f"{display} at {meet_ts}"
+
                 citation_map[label] = {
                     "url": url,
                     "source": source,
-                    "display": title or f"{source} document",
+                    "display": display,
+                    "timestamp": meet_ts,
                     "excerpt": text[:300],
                     "score": round(r.score, 3),
                 }
@@ -279,6 +300,20 @@ class ResearchAgent(BaseAgent):
         # Fetch relevant decision history (including reversals), ACL-filtered.
         decision_history = self._get_decision_context(context.original_query, context.user_email)
 
+        # Acronym buster — auto-define internal jargon mentioned in the query.
+        # Saves the user from having to ask "what does LSQ mean?" separately.
+        glossary_section = ""
+        try:
+            from app.services.acronym_buster import glossary_for_query
+            glossary = glossary_for_query(context.original_query)
+            if glossary:
+                lines = ["Glossary (use these definitions when discussing the terms):"]
+                for term, definition in glossary.items():
+                    lines.append(f"- {term}: {definition}")
+                glossary_section = "\n".join(lines) + "\n"
+        except Exception as e:
+            logger.debug(f"Glossary lookup skipped: {e}")
+
         # Synthesize across all results
         current_dt = format_ist(now_ist())
         prompt = SYNTHESIS_PROMPT.format(
@@ -287,6 +322,7 @@ class ResearchAgent(BaseAgent):
             current_datetime=current_dt,
             conversation_context=conversation_context,
             decision_history=decision_history,
+            glossary=glossary_section,
         )
 
         answer = generate(prompt, max_tokens=2048)

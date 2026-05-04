@@ -35,7 +35,7 @@ Rules:
 6. If sources conflict, note the conflict and cite both.
 
 Question: {question}
-
+{glossary}
 Sources:
 {sources}
 
@@ -144,10 +144,21 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
 
             sources_text += f"[{label}] (source: {source}, title: {title})\n{text_preview}\n\n"
 
+            # Pull the first inline [mm:ss] marker out of meet chunks so the
+            # citation card can say "Standup 14/02 at 14:32".
+            meet_ts = None
+            if source == "meet":
+                m = re.search(r"\[(\d{1,2}(?::\d{2}){1,2})\]", text_preview or "")
+                meet_ts = m.group(1) if m else None
+            display = title or f"{source} document"
+            if meet_ts:
+                display = f"{display} at {meet_ts}"
+
             citation_map[label] = {
                 "url": url,
                 "source": source,
-                "display": title or f"{source} document",
+                "display": display,
+                "timestamp": meet_ts,
                 "excerpt": text_preview[:300],
                 "freshness": freshness,
                 "score": round(score, 3),
@@ -155,7 +166,20 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
     finally:
         db.close()
 
-    prompt = ORACLE_PROMPT.format(question=question, sources=sources_text)
+    # Acronym buster — auto-define internal jargon mentioned in the question.
+    glossary_section = ""
+    try:
+        from app.services.acronym_buster import glossary_for_query
+        glossary = glossary_for_query(question)
+        if glossary:
+            lines = ["", "Glossary (use these definitions when discussing the terms):"]
+            for term, definition in glossary.items():
+                lines.append(f"- {term}: {definition}")
+            glossary_section = "\n".join(lines) + "\n"
+    except Exception as e:
+        logger.debug(f"Glossary lookup skipped: {e}")
+
+    prompt = ORACLE_PROMPT.format(question=question, sources=sources_text, glossary=glossary_section)
 
     answer_text = generate(prompt)
 
