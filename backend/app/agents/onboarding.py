@@ -15,28 +15,36 @@ from app.services.settings_service import get_enabled_sources
 
 logger = logging.getLogger(__name__)
 
-ONBOARDING_PROMPT = """You are an onboarding specialist for a company. A team member is asking about a specific topic. Create a focused, structured briefing.
+ONBOARDING_PROMPT = """You are an onboarding specialist for a company. A new team member is asking about a specific topic. Create a concise, factual briefing.
 
-CRITICAL RULE: ONLY include information that is DIRECTLY relevant to the question asked. If a source document mentions something unrelated to the question — even if it's from the same meeting or document — DO NOT include it. Stay strictly on-topic. Do not pad the answer with tangentially related information.
+CRITICAL RULES:
+- Include ONLY information directly relevant to the question.
+- Ignore tangential details even if they appear in the same source.
+- Do not invent facts. If evidence is missing, say so explicitly.
 
-Structure your response as:
-1. **Overview** — What this is about (2-3 sentences)
-2. **Key Decisions** — Decisions directly related to this topic and WHY they were made (bullet points)
-3. **Current Status** — Where things stand right now for THIS topic specifically
-4. **Key People** — Who's directly involved in THIS topic and their roles (bullet points)
-5. **Important Context** — Things a newcomer wouldn't know about THIS topic
-6. **Open Items** — Unresolved questions or pending action items for THIS topic
+Output format (exactly this, in order):
+{topic_heading} - Quick Onboarding Summary
+What is {topic_heading}?
+Current Setup
+Key Decisions
+Key People
+Challenges
+Open Items
 
 Formatting rules:
-- Use bullet points throughout — no walls of text
-- Keep each bullet concise (1-2 sentences max)
-- Cite sources as [1], [2], etc. (use the number from SOURCE_N)
-- Don't over-cite — pick the 1-2 most relevant sources per claim
-- If a section has no info, write "No information available" — NEVER invent or guess
-- ONLY use information from the provided sources and decisions. If you cannot find evidence for a claim, do not make it.
-- If the topic has no documented history at all, say: "I cannot find any documented records about this topic."
-- Dates in DD/MM/YYYY IST format
-- SKIP entire sections if there's no directly relevant info for them — a shorter, focused answer is better than a padded one
+- Use bullet points only (no paragraphs).
+- Each bullet: max 1 short sentence.
+- In "What is {topic_heading}?", include exactly 1 bullet.
+- Do NOT add citations after every bullet.
+- Add citations only as a final line per section when needed, in this format: "Sources: [1], [2]".
+- Use only SOURCE_N and Active Decisions provided below.
+- Use DD/MM/YYYY IST dates when available.
+- If the topic has no evidence in the provided material, output exactly:
+  "I cannot find any documented records about this topic."
+- If a section has no evidence, write exactly one bullet: "- No information available."
+- Do not repeat the same fact across sections.
+- Keep grammar natural and direct; avoid robotic wording.
+- Render all headings in bold markdown.
 
 Question: {question}
 
@@ -57,6 +65,13 @@ LOW_SIGNAL_PATTERNS = (
     "last edited by",
 )
 
+QUERY_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how",
+    "i", "in", "is", "it", "of", "on", "or", "our", "the", "this", "to",
+    "we", "what", "when", "where", "who", "why", "with", "you", "your",
+    "about", "me", "us", "team", "project",
+}
+
 
 class OnboardingAgent(BaseAgent):
     name = "onboarding"
@@ -70,10 +85,7 @@ class OnboardingAgent(BaseAgent):
         query = context.original_query
         project_name = self._extract_project_name(query)
 
-        # For project-focused onboarding, reuse the same logic as the main chatbot
-        # (ResearchAgent retrieval + synthesis) to avoid divergence.
-        if project_name:
-            return self._run_project_onboarding_via_research(context, project_name)
+        # Keep project-focused onboarding on this agent so output format stays stable.
 
         # Search from multiple angles for comprehensive coverage
         if project_name:
@@ -125,10 +137,12 @@ class OnboardingAgent(BaseAgent):
                 if not prev or float(r.score) > float(prev.score):
                     candidate_chunks[chunk_id] = r
 
+        query_terms = self._query_terms(query)
         selected = self._select_diverse_chunks(
             list(candidate_chunks.values()),
             max_total=12,
             project_name=project_name,
+            query_terms=query_terms,
         )
         for r in selected:
             chunk_id = str(r.id)
@@ -177,13 +191,16 @@ class OnboardingAgent(BaseAgent):
                 confidence=0.0,
             )
 
+        topic_heading = project_name or self._topic_heading_from_query(query)
         prompt = ONBOARDING_PROMPT.format(
+            topic_heading=topic_heading,
             question=query,
             decisions=decisions_text or "No formal decisions recorded on this topic.",
             sources=sources_text,
         )
 
-        answer = generate(prompt, max_tokens=2048)
+        answer = generate(prompt, max_tokens=900)
+        answer = self._enforce_onboarding_format(answer, topic_heading)
 
         # Extract citations — catches [1], [SOURCE_1], SOURCE_1, etc.
         citations = []
@@ -209,6 +226,99 @@ class OnboardingAgent(BaseAgent):
             ],
             confidence=0.7 if source_counter > 3 else 0.5,
         )
+
+    def _enforce_onboarding_format(self, answer: str, topic_heading: str) -> str:
+        """Normalize and compress output to the fixed onboarding format."""
+        if not answer:
+            return "I cannot find any documented records about this topic."
+
+        no_record_markers = (
+            "i cannot find any documented records about this topic",
+            "i could not find any documented records",
+        )
+        lower = answer.lower()
+        if any(m in lower for m in no_record_markers):
+            return "I cannot find any documented records about this topic."
+
+        section_order = [
+            f"{topic_heading} - Quick Onboarding Summary",
+            f"What is {topic_heading}?",
+            "Current Setup",
+            "Key Decisions",
+            "Key People",
+            "Challenges",
+            "Open Items",
+        ]
+        bullet_caps = {
+            f"What is {topic_heading}?": 1,
+            "Current Setup": 4,
+            "Key Decisions": 4,
+            "Key People": 4,
+            "Challenges": 3,
+            "Open Items": 3,
+        }
+
+        lines = [ln.strip() for ln in (answer or "").splitlines() if ln.strip()]
+        buckets: dict[str, list[str]] = {k: [] for k in section_order[1:]}
+        current = ""
+
+        alias = {
+            "overview": f"What is {topic_heading}?",
+            "project overview": f"What is {topic_heading}?",
+            "what is": f"What is {topic_heading}?",
+            "current status": "Current Setup",
+            "current setup": "Current Setup",
+            "key decisions": "Key Decisions",
+            "key people": "Key People",
+            "important context": "Challenges",
+            "challenges": "Challenges",
+            "blockers and challenges": "Challenges",
+            "open items": "Open Items",
+            "action items": "Open Items",
+        }
+
+        def resolve_header(text: str) -> str:
+            t = text.strip().lower().strip(":")
+            t = re.sub(r"^[#*\-\d\.\s]+", "", t).strip()
+            for k, v in alias.items():
+                if t == k or t.startswith(k):
+                    return v
+            return ""
+
+        for ln in lines:
+            header = resolve_header(ln)
+            if header:
+                current = header
+                continue
+            if not current:
+                continue
+            if not ln.startswith(("-", "•")):
+                ln = f"- {ln}"
+            elif ln.startswith("•"):
+                ln = "- " + ln[1:].strip()
+            ln = re.sub(r"\s+", " ", ln).strip()
+            buckets[current].append(ln)
+
+        out = [f"**{section_order[0]}**", ""]
+        for sec in section_order[1:]:
+            out.append(f"**{sec}**")
+            items = buckets.get(sec, [])
+            dedup = []
+            seen = set()
+            for item in items:
+                key = re.sub(r"\[[0-9]+\]", "", item).strip().lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                dedup.append(item)
+            items = dedup[:bullet_caps.get(sec, 3)]
+            if not items:
+                items = ["- No information available."]
+            out.extend(items)
+            out.append("")
+            out.append("")
+
+        return "\n".join(out).strip()
 
     def _run_project_onboarding_via_research(self, context: AgentContext, project_name: str) -> AgentResult:
         """Route project onboarding through ResearchAgent (same path as Oracle/main chatbot)."""
@@ -373,9 +483,16 @@ Sources:
             metadata={"mode": "time_machine"},
         )
 
-    def _select_diverse_chunks(self, chunks: list, max_total: int = 12, project_name: str = "") -> list:
+    def _select_diverse_chunks(
+        self,
+        chunks: list,
+        max_total: int = 12,
+        project_name: str = "",
+        query_terms: set[str] | None = None,
+    ) -> list:
         """Balance sources so one connector (e.g., ClickUp) doesn't dominate."""
         project_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]+", project_name) if len(t) > 2]
+        query_terms = query_terms or set()
 
         def is_project_match(r) -> bool:
             if not project_terms:
@@ -388,6 +505,8 @@ Sources:
         by_source = {}
         for r in sorted(chunks, key=lambda x: float(x.score), reverse=True):
             if not is_project_match(r):
+                continue
+            if query_terms and not self._matches_query_terms(r, query_terms):
                 continue
             source = r.payload.get("source", "unknown")
             by_source.setdefault(source, []).append(r)
@@ -413,12 +532,33 @@ Sources:
                     break
                 if str(r.id) in selected_ids:
                     continue
+                if query_terms and not self._matches_query_terms(r, query_terms):
+                    continue
                 text = (r.payload.get("text_preview", "") or "").lower()
                 if self._is_low_signal_excerpt(text):
                     continue
                 selected.append(r)
                 selected_ids.add(str(r.id))
         return selected
+
+    def _query_terms(self, query: str) -> set[str]:
+        terms = re.findall(r"[a-zA-Z0-9]+", (query or "").lower())
+        return {t for t in terms if len(t) > 2 and t not in QUERY_STOPWORDS}
+
+    def _topic_heading_from_query(self, query: str) -> str:
+        terms = [t for t in re.findall(r"[a-zA-Z0-9]+", (query or "").title()) if len(t) > 2]
+        if not terms:
+            return "Topic"
+        return " ".join(terms[:3])
+
+    def _matches_query_terms(self, result, query_terms: set[str]) -> bool:
+        title = (result.payload.get("title", "") or "").lower()
+        text = (result.payload.get("text_preview", "") or "").lower()
+        combined = f"{title} {text}"
+        overlap = sum(1 for t in query_terms if t in combined)
+        if len(query_terms) <= 3:
+            return overlap >= 1
+        return overlap >= 2
 
     def _is_low_signal_excerpt(self, text: str) -> bool:
         t = (text or "").lower()
