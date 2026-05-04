@@ -81,69 +81,53 @@ class OnboardingAgent(BaseAgent):
         return context.query_type == "onboarding"
 
     def run(self, context: AgentContext) -> AgentResult:
-        """Build a comprehensive onboarding briefing."""
+        """Build onboarding briefing using a simple, Oracle-like retrieval pipeline."""
         query = context.original_query
         project_name = self._extract_project_name(query)
-
-        # Keep project-focused onboarding on this agent so output format stays stable.
-
-        # Search from multiple angles for comprehensive coverage
-        if project_name:
-            search_queries = [
-                f"{project_name} project",
-                f"{project_name} timeline decisions blockers",
-                f"{project_name} slack drive meet updates",
-                f"{project_name} current status",
-            ]
-        else:
-            search_queries = [
-                query,
-                f"project overview background {query}",
-                f"decisions rationale {query}",
-                f"action items status {query}",
-            ]
-
         all_chunks = []
         sources_text = ""
         citation_map = {}
         source_counter = 0
         acl_blocked_count = 0
-        candidate_chunks = {}
 
-        for sq in search_queries:
-            vec = embed_text(sq)
-            results = search_chunks(vec, limit=6)
-
-            # Source enablement filter
-            enabled_sources = get_enabled_sources()
-            
-            # ACL filter + minimum relevance threshold
-            threshold = 0.35 if project_name else 0.45
-            relevant_results = [r for r in results if r.score >= threshold]
-            
-            # Only consider results from enabled sources
-            enabled_results = [r for r in relevant_results if r.payload.get("source", "unknown") in enabled_sources]
-            
-            acl_passed = [r for r in enabled_results if
-                user_can_see_chunk(context.user_email, r.payload.get("acl", []))
-            ]
-            
-            acl_blocked_count += len(enabled_results) - len(acl_passed)
-            filtered = acl_passed
-
-            for r in filtered:
-                chunk_id = str(r.id)
-                prev = candidate_chunks.get(chunk_id)
-                if not prev or float(r.score) > float(prev.score):
-                    candidate_chunks[chunk_id] = r
-
+        # Single-pass retrieval (Oracle-like): one query embedding, broader fetch,
+        # then simple filtering + rerank.
         query_terms = self._query_terms(query)
-        selected = self._select_diverse_chunks(
-            list(candidate_chunks.values()),
-            max_total=12,
-            project_name=project_name,
-            query_terms=query_terms,
-        )
+        vec = embed_text(query)
+        raw_results = search_chunks(vec, limit=24)
+        enabled_sources = set(get_enabled_sources())
+
+        scored = []
+        for r in raw_results:
+            source = r.payload.get("source", "unknown")
+            if source not in enabled_sources:
+                continue
+
+            acl = r.payload.get("acl", [])
+            if not user_can_see_chunk(context.user_email, acl):
+                acl_blocked_count += 1
+                continue
+
+            if float(r.score) < 0.35:
+                continue
+
+            title = (r.payload.get("title", "") or "").lower()
+            text = (r.payload.get("text_preview", "") or "").lower()
+            combined = f"{title} {text}"
+            if self._is_low_signal_excerpt(combined):
+                continue
+
+            # Topic relevance: keep only chunks that mention query terms.
+            overlap = sum(1 for t in query_terms if t in combined) if query_terms else 0
+            if query_terms and overlap == 0:
+                continue
+            kw_score = (overlap / max(len(query_terms), 1)) if query_terms else 0.0
+
+            final_score = 0.75 * float(r.score) + 0.25 * kw_score
+            scored.append((r, final_score))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        selected = [r for r, _ in scored[:10]]
         for r in selected:
             chunk_id = str(r.id)
             source_counter += 1
@@ -164,7 +148,11 @@ class OnboardingAgent(BaseAgent):
             all_chunks.append(chunk_id)
 
         # Get relevant decisions from the database, ACL-filtered.
-        decisions_text = self._get_relevant_decisions(query, context.user_email)
+        decisions_text = self._get_relevant_decisions(
+            query,
+            context.user_email,
+            query_terms=query_terms,
+        )
 
         if not sources_text and not decisions_text:
             if acl_blocked_count > 0:
@@ -220,8 +208,8 @@ class OnboardingAgent(BaseAgent):
             chunks_used=all_chunks,
             agent_name=self.name,
             reasoning_steps=[
-                f"Searched {len(search_queries)} angles",
-                f"Found {source_counter} relevant sources",
+                "Single-pass semantic retrieval",
+                f"Selected {source_counter} relevant sources",
                 f"Included {len(decisions_text.splitlines())} decisions",
             ],
             confidence=0.7 if source_counter > 3 else 0.5,
@@ -608,7 +596,12 @@ Sources:
             return m.group(1).replace("/", "-")
         return ""
 
-    def _get_relevant_decisions(self, query: str, user_email: str = "") -> str:
+    def _get_relevant_decisions(
+        self,
+        query: str,
+        user_email: str = "",
+        query_terms: set[str] | None = None,
+    ) -> str:
         """Fetch decisions related to the query topic, including reversal history.
 
         ACL-filtered: a new hire onboarding shouldn't see decisions from
@@ -636,6 +629,13 @@ Sources:
             query_vec = embed_text(query)
             scored = []
             for d in decisions:
+                # Topic guard: for specific queries, require lexical overlap with
+                # decision/rationale so unrelated project decisions don't leak in.
+                if query_terms:
+                    hay = f"{d.decision or ''} {d.rationale or ''}".lower()
+                    overlap = sum(1 for t in query_terms if t in hay)
+                    if overlap == 0:
+                        continue
                 d_vec = embed_text(d.decision)
                 dot = sum(a * b for a, b in zip(query_vec, d_vec))
                 norm_q = sum(a * a for a in query_vec) ** 0.5

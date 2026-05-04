@@ -256,24 +256,37 @@ def get_feedback(limit: int = 50):
 # --- Decisions ---
 
 @router.get("/decisions")
-def get_decisions(status: str = "all", limit: int = 50, user_email: str = ""):
+def get_decisions(
+    status: str = "all",
+    limit: int = 50,
+    user_email: str = "",
+    actor_email: str = Depends(get_current_user_email),
+):
     """List decisions with reversal chain info.
 
     The decision log is reachable from the user-facing sidebar, so ACL-filter
     by `user_email` when provided. Admins (per acl.user_can_see_chunk) bypass
     the filter automatically.
     """
-    from app.core.acl import user_can_see_chunk
+    from app.core.acl import user_can_see_chunk, get_user_role
 
     db = SessionLocal()
     try:
+        actor_role = get_user_role(actor_email)
+        # Default behavior: filter to the signed-in user's visibility.
+        # Optional override: admins can inspect another user's visibility.
+        effective_user = actor_email
+        if user_email and user_email.lower() != actor_email.lower():
+            if actor_role != "admin":
+                raise HTTPException(status_code=403, detail="Only admins can query another user's visibility")
+            effective_user = user_email
+
         query = db.query(DecisionRecord).order_by(DecisionRecord.decided_at.desc())
         if status != "all":
             query = query.filter(DecisionRecord.status == status)
-        decisions = query.limit(limit * 2 if user_email else limit).all()
+        decisions = query.limit(limit * 2).all()
 
-        if user_email:
-            decisions = [d for d in decisions if user_can_see_chunk(user_email, list(d.acl or []))]
+        decisions = [d for d in decisions if user_can_see_chunk(effective_user, list(d.acl or []))]
         decisions = decisions[:limit]
 
         return {
@@ -293,6 +306,84 @@ def get_decisions(status: str = "all", limit: int = 50, user_email: str = ""):
             ],
             "total_active": db.query(DecisionRecord).filter(DecisionRecord.status == "active").count(),
             "total_superseded": db.query(DecisionRecord).filter(DecisionRecord.status == "superseded").count(),
+        }
+    finally:
+        db.close()
+
+
+@router.get("/visibility/documents")
+def get_visible_documents(
+    limit: int = 200,
+    query: str = "",
+    user_email: str = "",
+    actor_email: str = Depends(get_current_user_email),
+):
+    """Debug helper: list documents visible to a user after ACL filtering.
+
+    - Non-admins can only inspect themselves.
+    - Admins can inspect another user via `user_email`.
+    """
+    from app.core.acl import user_can_see_chunk, get_user_role
+
+    db = SessionLocal()
+    try:
+        actor_role = get_user_role(actor_email)
+        effective_user = actor_email
+        if user_email and user_email.lower() != actor_email.lower():
+            if actor_role != "admin":
+                raise HTTPException(status_code=403, detail="Only admins can query another user's visibility")
+            effective_user = user_email
+
+        docs_all = db.query(Document).order_by(Document.updated_at.desc()).all()
+        visible = [d for d in docs_all if user_can_see_chunk(effective_user, list(d.acl or []))]
+
+        q = query.strip().lower()
+        if q:
+            filtered = []
+            for d in visible:
+                title = (d.title or "").lower()
+                content = (d.content or "")[:4000].lower()
+                source_id = (d.source_id or "").lower()
+                if q in title or q in content or q in source_id:
+                    filtered.append(d)
+            visible = filtered
+
+        visible = visible[: max(1, min(limit, 1000))]
+        doc_ids = [d.id for d in visible]
+
+        chunk_counts = {}
+        if doc_ids:
+            rows = (
+                db.query(Chunk.document_id, func.count(Chunk.id))
+                .filter(Chunk.document_id.in_(doc_ids))
+                .group_by(Chunk.document_id)
+                .all()
+            )
+            chunk_counts = {row[0]: int(row[1]) for row in rows}
+
+        by_source = {}
+        items = []
+        for d in visible:
+            by_source[d.source] = by_source.get(d.source, 0) + 1
+            items.append(
+                {
+                    "document_id": str(d.id),
+                    "title": d.title or "(untitled)",
+                    "source": d.source or "unknown",
+                    "source_id": d.source_id or "",
+                    "url": d.url or "",
+                    "acl": list(d.acl or []),
+                    "chunk_count": chunk_counts.get(d.id, 0),
+                    "updated_at": d.updated_at.isoformat() if d.updated_at else "",
+                }
+            )
+
+        return {
+            "effective_user": effective_user,
+            "query": q,
+            "total_visible_documents": len(visible),
+            "by_source": by_source,
+            "documents": items,
         }
     finally:
         db.close()
