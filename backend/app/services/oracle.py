@@ -184,11 +184,17 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
     answer_text = generate(prompt)
 
     citations = []
-    used_sources = set(re.findall(r"\[SOURCE_(\d+)\]", answer_text))
+    # Catch [SOURCE_N], SOURCE_N, and bare [N] in case the LLM normalized on its own
+    used_sources = set(re.findall(r"SOURCE_(\d+)", answer_text))
+    used_sources.update(re.findall(r"\[(\d+)\]", answer_text))
     for num in sorted(used_sources, key=int):
         label = f"SOURCE_{num}"
         if label in citation_map:
             citations.append(citation_map[label])
+
+    # Normalize [SOURCE_N] / SOURCE_N → [N] so the answer text matches the
+    # numbered source list shown to the user.
+    answer_text = re.sub(r"\[?SOURCE_(\d+)\]?", r"[\1]", answer_text)
 
     chunk_ids = [str(c.id) for c, _ in chunks_with_scores]
 

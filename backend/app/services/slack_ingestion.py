@@ -146,6 +146,43 @@ def get_thread_replies(channel_id: str, thread_ts: str) -> list[dict]:
     return replies
 
 
+_channel_name_cache: dict = {}  # channel_id → name; populated on demand
+
+
+def _get_channel_name(channel_id: str) -> str:
+    """Resolve a Slack channel ID to its human-readable name. Cached per
+    process. Used to render citations like "#general" instead of "C0AM9KN0L6S"."""
+    if not channel_id:
+        return ""
+    if channel_id in _channel_name_cache:
+        return _channel_name_cache[channel_id]
+    try:
+        client = _get_client()
+        resp = client.conversations_info(channel=channel_id)
+        if resp.get("ok"):
+            name = (resp.get("channel") or {}).get("name", "")
+            if name:
+                _channel_name_cache[channel_id] = name
+                return name
+    except Exception as e:
+        logger.debug(f"Channel name lookup failed for {channel_id}: {e}")
+    return ""
+
+
+def _format_slack_ts(ts: str) -> str:
+    """Slack message ts is unix seconds with a fractional suffix. Convert to
+    IST DD/MM/YYYY HH:MM."""
+    if not ts:
+        return ""
+    try:
+        from datetime import datetime, timezone, timedelta
+        seconds = float(ts)
+        ist = timezone(timedelta(hours=5, minutes=30))
+        return datetime.fromtimestamp(seconds, tz=ist).strftime("%d/%m/%Y %H:%M IST")
+    except Exception:
+        return ""
+
+
 def format_message_for_storage(msg: dict, channel_id: str, acl: list[str] = None) -> dict:
     ts = msg.get("ts", "")
     user = msg.get("user", "unknown")
@@ -155,13 +192,25 @@ def format_message_for_storage(msg: dict, channel_id: str, acl: list[str] = None
     source_id = f"slack:{channel_id}:{ts}"
     url = f"https://slack.com/archives/{channel_id}/p{ts.replace('.', '')}"
 
+    # Build a citation-friendly title: "#general — 14/02/2026 14:32 IST".
+    # Falls back to the channel ID if name lookup fails (private channel,
+    # missing scopes, etc.). Per PRD: "the specific Slack message" with
+    # timestamp.
+    channel_name = _get_channel_name(channel_id)
+    when = _format_slack_ts(ts)
+    label = f"#{channel_name}" if channel_name else f"#{channel_id}"
+    if when:
+        title = f"{label} — {when}"
+    else:
+        title = f"Slack message in {label}"
+
     return {
         "source_id": source_id,
         "text": text,
         "url": url,
         "acl": acl if acl else ["public"],
         "slack_user_id": user,
-        "title": f"Slack message in #{channel_id}",
+        "title": title,
         "thread_ts": thread_ts,
     }
 
