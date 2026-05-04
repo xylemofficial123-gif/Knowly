@@ -8,10 +8,6 @@
     closed: false,
   };
 
-  // Set these to your production values.
-  const API_URL = "https://knowledge-system-production.up.railway.app";
-  const EXTENSION_API_KEY =  "080f32884e698da3e2ef2600670fe0e210be93314bdf958d89af0142f9480004";
-
   const launcher = document.createElement("button");
   launcher.id = "xylem-launcher";
   launcher.textContent = "✦";
@@ -107,31 +103,31 @@
   }
 
   async function askOracle(question) {
-    let res;
-    try {
-      res = await fetch(`${API_URL}/api/oracle/ask`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Extension-Key": EXTENSION_API_KEY,
+    return await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        {
+          type: "xylem:ask",
+          payload: {
+            question,
+            userEmail: state.userEmail,
+            sessionId: state.sessionId,
+          },
         },
-        body: JSON.stringify({
-          question,
-          user_email: state.userEmail,
-          session_id: state.sessionId,
-        }),
-      });
-    } catch (e) {
-      throw new Error("Network/CORS error. Check Railway CORS + extension permissions.");
-    }
-
-    if (!res.ok) {
-      throw new Error(`API request failed (${res.status})`);
-    }
-
-    const data = await res.json();
-    if (data.session_id) state.sessionId = data.session_id;
-    return data;
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(`Extension runtime error: ${chrome.runtime.lastError.message}`));
+            return;
+          }
+          if (!response?.ok) {
+            reject(new Error(response?.error || "Request failed"));
+            return;
+          }
+          const data = response.data || {};
+          if (data.session_id) state.sessionId = data.session_id;
+          resolve(data);
+        }
+      );
+    });
   }
 
   async function onSend() {
