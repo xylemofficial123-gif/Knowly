@@ -159,7 +159,7 @@ if _has_any_slack_installation():
         await ack()
         project_name = command.get("text", "").strip()
         if not project_name:
-            await respond("Usage: `/timeline [project name]`")
+            await respond({"text": "Usage: `/timeline [project name]`", "response_type": "ephemeral"})
             return
 
         from app.services.timeline import get_project_timeline
@@ -167,7 +167,7 @@ if _has_any_slack_installation():
         events = get_project_timeline(project_name, user_email="")
 
         if not events:
-            await respond(f"No timeline found for *{project_name}*")
+            await respond({"text": f"No timeline found for *{project_name}*", "response_type": "ephemeral"})
             return
 
         blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"Timeline: {project_name}"}}]
@@ -182,19 +182,19 @@ if _has_any_slack_installation():
             })
             blocks.append({"type": "divider"})
 
-        await respond(blocks=blocks)
+        await respond(text=f"Timeline: {project_name}", blocks=blocks, response_type="ephemeral")
 
     @slack_app.command("/define")
     async def handle_define(ack, command, respond):
         await ack()
         term = command.get("text", "").strip()
         if not term:
-            await respond("Usage: `/define [term]`")
+            await respond({"text": "Usage: `/define [term]`", "response_type": "ephemeral"})
             return
 
         from app.services.acronym_buster import bust_acronym
         result = bust_acronym(term)
-        await respond(result)
+        await respond({"text": result, "response_type": "ephemeral"})
 
     @slack_app.command("/oracle")
     async def handle_oracle(ack, respond, command, client):
@@ -204,7 +204,10 @@ if _has_any_slack_installation():
         user_id = command.get("user_id", "")
 
         if not question:
-            await respond("Usage: `/oracle <your question>`\nExample: `/oracle What was decided about the pricing model?`")
+            await respond({
+                "text": "Usage: `/oracle <your question>`\nExample: `/oracle What was decided about the pricing model?`",
+                "response_type": "ephemeral",
+            })
             return
 
         await respond({"text": "🔍 Searching the knowledge base…", "response_type": "ephemeral"})
@@ -238,7 +241,7 @@ if _has_any_slack_installation():
 
             await respond({
                 "text": f"{answer}{citation_text}",
-                "response_type": "in_channel",
+                "response_type": "ephemeral",
                 "replace_original": False,
             })
 
@@ -251,7 +254,7 @@ if _has_any_slack_installation():
         await ack()
         project_name = command.get("text", "").strip()
         if not project_name:
-            await respond("Usage: `/history <project>`\nExample: `/history mobile-app`")
+            await respond({"text": "Usage: `/history <project>`\nExample: `/history mobile-app`", "response_type": "ephemeral"})
             return
 
         from app.services.timeline import get_project_timeline
@@ -259,7 +262,7 @@ if _has_any_slack_installation():
         events = get_project_timeline(project_name, user_email="")
 
         if not events:
-            await respond(f"No history found for *{project_name}*")
+            await respond({"text": f"No history found for *{project_name}*", "response_type": "ephemeral"})
             return
 
         blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"History: {project_name}"}}]
@@ -274,14 +277,17 @@ if _has_any_slack_installation():
             })
             blocks.append({"type": "divider"})
 
-        await respond(blocks=blocks)
+        await respond(text=f"History: {project_name}", blocks=blocks, response_type="ephemeral")
 
     @slack_app.command("/decision")
     async def handle_decision(ack, command, respond):
         await ack()
         text = command.get("text", "").strip()
         if not text:
-            await respond("Usage: `/decision <decision text>`\nExample: `/decision Use Redis instead of Memcached for caching`")
+            await respond({
+                "text": "Usage: `/decision <decision text>`\nExample: `/decision Use Redis instead of Memcached for caching`",
+                "response_type": "ephemeral",
+            })
             return
 
         import datetime
@@ -310,10 +316,10 @@ if _has_any_slack_installation():
             )
             db.add(record)
             db.commit()
-            await respond(f"✅ Decision recorded: *{text}*")
+            await respond({"text": f"✅ Decision recorded: *{text}*", "response_type": "ephemeral"})
         except Exception as e:
             db.rollback()
-            await respond(f"❌ Failed to record decision: {e}")
+            await respond({"text": f"❌ Failed to record decision: {e}", "response_type": "ephemeral"})
         finally:
             db.close()
 
