@@ -63,7 +63,7 @@ if _has_any_slack_installation():
     from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler as SlackRequestHandler
     from slack_bolt.authorization.authorize_result import AuthorizeResult
 
-    def _authorize(enterprise_id, team_id, user_id, client):
+    async def _authorize(enterprise_id, team_id, user_id, client):
         # Keep env token as explicit override for legacy deployments.
         if settings.SLACK_BOT_TOKEN:
             return AuthorizeResult(
