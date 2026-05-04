@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import logging
 
 from app.core.auth import get_current_user_email
+from app.services import query_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/oracle", tags=["oracle"])
@@ -53,6 +54,13 @@ def ask(req: AskRequest, actor_email: str = Depends(get_current_user_email)):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
+    # Skip cache when there's conversation history — replies depend on prior turns.
+    use_cache = not req.history
+    if use_cache:
+        cached = query_cache.get(actor_email, req.question)
+        if cached is not None:
+            return AgentResponse(**cached)
+
     try:
         from app.agents.orchestrator import ask as agent_ask
 
@@ -65,6 +73,8 @@ def ask(req: AskRequest, actor_email: str = Depends(get_current_user_email)):
             session_id=req.session_id,
             history=history,
         )
+        if use_cache:
+            query_cache.set(actor_email, req.question, result)
         return AgentResponse(**result)
     except Exception as e:
         logger.error(f"Agent error: {e}")
@@ -91,10 +101,15 @@ def ask_simple(req: AskRequest, actor_email: str = Depends(get_current_user_emai
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
+    cached = query_cache.get(f"simple:{actor_email}", req.question)
+    if cached is not None:
+        return OracleResponse(**cached)
+
     try:
         from app.services.oracle import ask_oracle
 
         result = ask_oracle(req.question, actor_email)
+        query_cache.set(f"simple:{actor_email}", req.question, result)
         return OracleResponse(**result)
     except Exception as e:
         logger.error(f"Oracle error: {e}")

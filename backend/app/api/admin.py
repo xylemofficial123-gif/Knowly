@@ -1222,3 +1222,219 @@ def backfill_doc_status(actor: str = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# ── Cache management ────────────────────────────────────────────────────────
+
+
+@router.post("/cache/clear")
+def clear_query_cache(actor: str = Depends(require_admin)):
+    """Drop every cached response. Use after seeding demo data or
+    when a stale answer is shown."""
+    from app.services import query_cache
+    cleared = query_cache.clear()
+    return {"cleared": cleared}
+
+
+# ── Demo seeding ────────────────────────────────────────────────────────────
+
+
+@router.post("/seed-demo-data")
+def seed_demo_data(actor: str = Depends(require_admin)):
+    """Insert curated demo decisions + supporting chunks so the Oracle has
+    rich, citation-quality answers on stage. Idempotent — re-running upserts.
+
+    Each entry produces:
+      1. A Document + Chunks (visible to Oracle retrieval, ACL=public)
+      2. A DecisionRecord (visible in /decisions UI)
+
+    All seed rows are tagged with source_id starting "demo:" so they can be
+    cleared via /api/admin/clear-source/demo (well, "demo" is treated as
+    a regular source name).
+    """
+    from app.services.chunker import chunk_and_store
+    from app.core.timezone import now_utc
+    import datetime as _dt
+
+    seeds = [
+        {
+            "slug": "stripe-vs-adyen",
+            "decision": "Use Stripe over Adyen as the payment provider",
+            "rationale": "Better developer velocity and clearer pricing for India transactions",
+            "options": ["Adyen", "Razorpay"],
+            "decided_at": _dt.datetime(2026, 4, 30, 23, 5, 0),
+            "title": "Decision: Stripe over Adyen — payment provider",
+            "text": (
+                "After three weeks of evaluation, we're going with Stripe over Adyen as our payment provider. "
+                "Reasons: Stripe's developer velocity is unmatched (test mode + clear docs cut our integration estimate from 3 weeks to 1), "
+                "their India pricing is transparent (2.9% + INR 3 vs Adyen's variable interchange-plus model that needed a sales call), "
+                "and their support tier covers our volume without an enterprise contract. "
+                "Razorpay was also evaluated but their international card support is limited. "
+                "Decision owners: Krithin (eng), Sachin (product). Effective date: 30/04/2026."
+            ),
+        },
+        {
+            "slug": "postgres-vs-mongo",
+            "decision": "Use Postgres over MongoDB for the user service",
+            "rationale": "Strong schema guarantees + native JSON columns avoid losing the flexibility argument",
+            "options": ["MongoDB", "DynamoDB"],
+            "decided_at": _dt.datetime(2026, 3, 12, 16, 0, 0),
+            "title": "Decision: Postgres over MongoDB — user service database",
+            "text": (
+                "We're standardising on Postgres for the user service. MongoDB was the alternative, "
+                "and DynamoDB was briefly considered. Reasons for Postgres: (a) strict relational guarantees "
+                "for billing-adjacent data we cannot afford to lose, (b) JSONB columns give us most of Mongo's "
+                "schema flexibility without giving up transactions, (c) team has 6+ years of operational "
+                "experience with Postgres vs zero with Mongo at scale. The flexibility argument for Mongo "
+                "didn't survive when we measured it against JSONB. Decided 12/03/2026."
+            ),
+        },
+        {
+            "slug": "clickup-over-asana",
+            "decision": "Adopt ClickUp over Asana as the company project tracker",
+            "rationale": "Better support for nested sprint hierarchies and a free tier sufficient for our team size",
+            "options": ["Asana", "Linear", "Jira"],
+            "decided_at": _dt.datetime(2026, 2, 18, 14, 30, 0),
+            "title": "Decision: ClickUp project tracker",
+            "text": (
+                "Project tracker decision: ClickUp wins. Asana was the runner-up. Linear was rejected because "
+                "it forced an engineering-only workflow that doesn't fit ops/marketing. Jira was rejected on "
+                "cost and onboarding pain. ClickUp's nested sprints handle our 'epic → sprint → task → subtask' "
+                "structure without workarounds, and the free tier covers our headcount today. Migration window: "
+                "Feb 18 → Mar 5 2026."
+            ),
+        },
+        {
+            "slug": "two-week-sprint-cadence",
+            "decision": "Use 2-week sprint cadence for engineering",
+            "rationale": "1-week is too short for stable estimation; 4-week loses momentum",
+            "options": ["1-week sprints", "4-week sprints"],
+            "decided_at": _dt.datetime(2026, 4, 12, 11, 0, 0),
+            "title": "Decision: Engineering sprint cadence",
+            "text": (
+                "Engineering will run 2-week sprints starting 15/04/2026. We considered 1-week sprints "
+                "(rejected — too much overhead, ceremony eats focus time) and 4-week sprints (rejected — "
+                "too much drift before correction). Two weeks is the cadence that matches the team's natural "
+                "rhythm and ClickUp's default sprint folder pattern."
+            ),
+        },
+        {
+            "slug": "code-review-two-approvals",
+            "decision": "Require 2 approvals for any merge to main",
+            "rationale": "One reviewer missed a regression that broke prod last quarter; bus factor of 1 is too thin",
+            "options": ["1 approval", "Conditional 1 approval for trivial PRs"],
+            "decided_at": _dt.datetime(2026, 1, 28, 10, 0, 0),
+            "title": "Decision: 2-approval merge policy",
+            "text": (
+                "Effective immediately, all merges to main require 2 approvals. The Q4 incident where a "
+                "single approver missed a memory leak that took prod down for 47 minutes was the trigger. "
+                "We considered keeping 1-approval for trivial PRs but the cognitive cost of deciding 'is "
+                "this trivial?' isn't worth the time saved. Owner: Krithin."
+            ),
+        },
+        {
+            "slug": "weekly-oncall-rotation",
+            "decision": "Run a weekly on-call rotation across the engineering team",
+            "rationale": "Daily rotation is exhausting; bi-weekly leaves too much context-switching when handing off active incidents",
+            "options": ["Daily rotation", "Bi-weekly rotation"],
+            "decided_at": _dt.datetime(2026, 3, 5, 9, 30, 0),
+            "title": "Decision: On-call cadence",
+            "text": (
+                "On-call will run a weekly rotation starting Monday 09:00 IST → following Monday 09:00 IST. "
+                "Daily was rejected (no one builds context); bi-weekly was rejected (handoffs of active "
+                "incidents become risky). Six engineers in the rotation; primary + secondary every week. "
+                "Pager via PagerDuty. Decided 05/03/2026."
+            ),
+        },
+        {
+            "slug": "local-embeddings-vs-openai",
+            "decision": "Use local fastembed (BAAI/bge-small) for embeddings instead of OpenAI's API",
+            "rationale": "Free, sufficient for our query volume, and keeps source content from leaving our infra",
+            "options": ["OpenAI text-embedding-3-small", "Cohere embed v3"],
+            "decided_at": _dt.datetime(2026, 4, 2, 15, 45, 0),
+            "title": "Decision: Local embeddings via fastembed",
+            "text": (
+                "Embeddings: we're using fastembed with BAAI/bge-small-en-v1.5 (384 dims) running locally "
+                "on the API service. Alternatives considered: OpenAI text-embedding-3-small (rejected — sends "
+                "every chunk of internal data to OpenAI), Cohere embed v3 (rejected — same data-sovereignty "
+                "concern + paid). Local model is free, runs in ~80ms per chunk on CPU, and benchmarks within "
+                "5% of the paid options on our retrieval test set. Decided 02/04/2026."
+            ),
+        },
+        {
+            "slug": "public-q4-roadmap",
+            "decision": "Publish the Q4 2026 product roadmap publicly on the company blog",
+            "rationale": "Customer transparency and recruiting signal; competitive risk is low for an early-stage product",
+            "options": ["Customer-only roadmap", "Internal-only roadmap"],
+            "decided_at": _dt.datetime(2026, 4, 25, 17, 0, 0),
+            "title": "Decision: Public Q4 2026 roadmap",
+            "text": (
+                "We will publish the Q4 2026 product roadmap publicly on the company blog the first week of "
+                "October. Considered: customer-only (rejected — recruiting and brand benefit comes from the "
+                "*public* signal, not just customers seeing it) and internal-only (rejected — we lose the "
+                "trust-building motion that worked well in Q2). Risk acknowledged: competitors will see it "
+                "first. Mitigation: keep tactical details out, publish themes and sequencing only. "
+                "Decided 25/04/2026."
+            ),
+        },
+    ]
+
+    db = SessionLocal()
+    created = []
+    upserted = []
+    try:
+        for seed in seeds:
+            source_id = f"demo:{seed['slug']}"
+            chunk_and_store(
+                source="demo",
+                source_id=source_id,
+                text=seed["text"],
+                url=f"https://demo.xylem.ai/decisions/{seed['slug']}",
+                acl=["public"],
+                title=seed["title"],
+                doc_status="finalized",
+            )
+
+            existing = (
+                db.query(DecisionRecord)
+                .filter(DecisionRecord.source_chunk_ids.contains([source_id]))
+                .first()
+            )
+            if existing:
+                existing.decision = seed["decision"]
+                existing.rationale = seed["rationale"]
+                existing.options_considered = seed["options"]
+                existing.decided_at = seed["decided_at"]
+                existing.acl = ["public"]
+                existing.status = "active"
+                upserted.append(seed["slug"])
+            else:
+                rec = DecisionRecord(
+                    decision=seed["decision"],
+                    rationale=seed["rationale"],
+                    options_considered=seed["options"],
+                    status="active",
+                    source_chunk_ids=[source_id],
+                    participants=[],
+                    acl=["public"],
+                    decided_at=seed["decided_at"],
+                )
+                db.add(rec)
+                created.append(seed["slug"])
+        db.commit()
+
+        from app.services import query_cache
+        query_cache.clear()
+
+        return {
+            "status": "ok",
+            "created": created,
+            "upserted": upserted,
+            "total_seeds": len(seeds),
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"seed-demo-data failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
