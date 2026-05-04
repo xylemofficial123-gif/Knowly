@@ -209,8 +209,8 @@ class ResearchAgent(BaseAgent):
         # Phase 3: Build research sections from candidates
         all_chunks = []
         research_results = []
-        source_counter = 0
         citation_map = {}
+        seen_keys: dict[str, int] = {}  # dedupe_key → source_counter idx
 
         # Group by search query
         from itertools import groupby
@@ -223,12 +223,25 @@ class ResearchAgent(BaseAgent):
             for _, _, r in items:
                 if added >= 4:
                     break
-                source_counter += 1
-                label = f"SOURCE_{source_counter}"
                 title = r.payload.get("title", "Unknown")
                 text = r.payload.get("text_preview", "")
                 url = r.payload.get("url", "")
                 source = r.payload.get("source", "unknown")
+                source_id = r.payload.get("source_id", "")
+
+                # Dedupe by source URL (or source_id / title fallback). A long
+                # Slack thread chunked into many pieces collapses into ONE
+                # citation — same URL is one source from the user's view.
+                dedupe_key = url or source_id or f"{source}:{title}"
+                if dedupe_key in seen_keys:
+                    label = f"SOURCE_{seen_keys[dedupe_key]}"
+                    research_section += f"[{label}] (additional excerpt)\n{text}\n\n"
+                    all_chunks.append(str(r.id))
+                    continue
+
+                idx = len(seen_keys) + 1
+                seen_keys[dedupe_key] = idx
+                label = f"SOURCE_{idx}"
 
                 doc_status = r.payload.get("doc_status", "")
                 status_tag = f", status: {doc_status}" if doc_status in ("draft", "in_review") else ""

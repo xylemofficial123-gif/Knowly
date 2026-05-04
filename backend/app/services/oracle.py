@@ -123,9 +123,17 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
     citation_map = {}
     db: Session = SessionLocal()
 
+    # Dedupe chunks that point to the same source document (same URL, or same
+    # source_id when URL is missing). A long Slack thread or Drive doc may be
+    # split into many chunks — they're all "one source" to the user, so we
+    # collapse them into a single labeled citation. We keep the highest-scoring
+    # chunk's text as the excerpt and concatenate distinct text into sources_text
+    # so the LLM still has full context for synthesis.
+    seen_keys: dict[str, int] = {}  # dedupe_key → label index (1-based)
+    grouped_text: dict[int, list[str]] = {}  # label index → list of chunk texts
+
     try:
-        for i, (chunk, score) in enumerate(chunks_with_scores):
-            label = f"SOURCE_{i + 1}"
+        for chunk, score in chunks_with_scores:
             text_preview = chunk.payload.get("text_preview", "")
             source = chunk.payload.get("source", "unknown")
             url = chunk.payload.get("url", "")
@@ -137,12 +145,22 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
             if source == "upload" and not url and source_id:
                 url = f"{settings.BACKEND_URL}/api/ingest/uploaded/{quote(source_id, safe='')}"
 
+            dedupe_key = url or source_id or f"{source}:{title}"
+
+            if dedupe_key in seen_keys:
+                idx = seen_keys[dedupe_key]
+                grouped_text[idx].append(text_preview)
+                continue
+
+            idx = len(seen_keys) + 1
+            seen_keys[dedupe_key] = idx
+            grouped_text[idx] = [text_preview]
+            label = f"SOURCE_{idx}"
+
             freshness = 0.5
             if doc_id:
                 doc = db.query(Document).filter(Document.id == doc_id).first()
                 freshness = _get_freshness(doc)
-
-            sources_text += f"[{label}] (source: {source}, title: {title})\n{text_preview}\n\n"
 
             # Pull the first inline [mm:ss] marker out of meet chunks so the
             # citation card can say "Standup 14/02 at 14:32".
@@ -163,6 +181,14 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
                 "freshness": freshness,
                 "score": round(score, 3),
             }
+
+        # Build sources_text after grouping so each labeled source contains
+        # all its merged chunk text — gives the LLM full context per source.
+        for idx in sorted(grouped_text.keys()):
+            label = f"SOURCE_{idx}"
+            meta = citation_map.get(label, {})
+            merged = "\n".join(grouped_text[idx])
+            sources_text += f"[{label}] (source: {meta.get('source','')}, title: {meta.get('display','')})\n{merged}\n\n"
     finally:
         db.close()
 
