@@ -19,6 +19,7 @@ from app.api.guardian import router as guardian_router
 from app.api.oauth import router as oauth_router
 from app.core.database import SessionLocal
 from app.models import OAuthConnection
+from app.core.token_store import get_latest_slack_connection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,16 +49,39 @@ def _resolve_slack_bot_token() -> str:
         db.close()
 
 
+def _has_any_slack_installation() -> bool:
+    if settings.SLACK_BOT_TOKEN:
+        return True
+    conn = get_latest_slack_connection()
+    return bool(conn and conn.access_token)
+
+
 slack_bot_token = _resolve_slack_bot_token()
 
-if slack_bot_token:
+if _has_any_slack_installation():
     from slack_bolt.async_app import AsyncApp as SlackApp
     from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler as SlackRequestHandler
+    from slack_bolt.authorization.authorize_result import AuthorizeResult
 
-    slack_app = SlackApp(
-        token=slack_bot_token,
-        signing_secret=settings.SLACK_SIGNING_SECRET,
-    )
+    def _authorize(enterprise_id, team_id, user_id, client):
+        # Keep env token as explicit override for legacy deployments.
+        if settings.SLACK_BOT_TOKEN:
+            return AuthorizeResult(
+                enterprise_id=enterprise_id,
+                team_id=team_id,
+                bot_token=settings.SLACK_BOT_TOKEN,
+            )
+        conn = get_latest_slack_connection(workspace_id=team_id or "")
+        if not conn or not conn.access_token:
+            raise ValueError(f"No Slack installation found for team_id={team_id}")
+        return AuthorizeResult(
+            enterprise_id=enterprise_id,
+            team_id=team_id or conn.workspace_id,
+            bot_token=conn.access_token,
+            bot_user_id=conn.bot_user_id,
+        )
+
+    slack_app = SlackApp(signing_secret=settings.SLACK_SIGNING_SECRET, authorize=_authorize)
 
     @slack_app.error
     async def global_error_handler(error, body, logger):
@@ -77,7 +101,7 @@ if slack_bot_token:
                 pass
 
     @slack_app.event("message")
-    async def handle_message(event, say):
+    async def handle_message(event, say, client):
         from app.services.settings_service import is_source_enabled
         if not is_source_enabled("slack"):
             return
@@ -116,9 +140,7 @@ if slack_bot_token:
             from app.workers.tasks import process_guardian_check
             user_email = ""
             try:
-                from slack_sdk.web.async_client import AsyncWebClient
-                wc = AsyncWebClient(token=slack_bot_token)
-                info = await wc.users_info(user=user)
+                info = await client.users_info(user=user)
                 user_email = info.get("user", {}).get("profile", {}).get("email", "")
             except Exception:
                 pass
@@ -175,7 +197,7 @@ if slack_bot_token:
         await respond(result)
 
     @slack_app.command("/oracle")
-    async def handle_oracle(ack, respond, command):
+    async def handle_oracle(ack, respond, command, client):
         await ack()
 
         question = command.get("text", "").strip()
@@ -190,8 +212,6 @@ if slack_bot_token:
         # Resolve Slack user ID → email
         user_email = "demo@yourcompany.com"
         try:
-            from slack_sdk.web.async_client import AsyncWebClient
-            client = AsyncWebClient(token=slack_bot_token)
             user_info = await client.users_info(user=user_id)
             user_email = user_info.get("user", {}).get("profile", {}).get("email", "") or user_email
         except Exception:
@@ -353,9 +373,14 @@ ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origin_regex=r"chrome-extension://.*",
+    allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Extension-Key",
+    ],
 )
 
 # Register routers

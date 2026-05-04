@@ -107,18 +107,23 @@
   }
 
   async function askOracle(question) {
-    const res = await fetch(`${API_URL}/api/oracle/ask`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Extension-Key": EXTENSION_API_KEY,
-      },
-      body: JSON.stringify({
-        question,
-        user_email: state.userEmail,
-        session_id: state.sessionId,
-      }),
-    });
+    let res;
+    try {
+      res = await fetch(`${API_URL}/api/oracle/ask`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Extension-Key": EXTENSION_API_KEY,
+        },
+        body: JSON.stringify({
+          question,
+          user_email: state.userEmail,
+          session_id: state.sessionId,
+        }),
+      });
+    } catch (e) {
+      throw new Error("Network/CORS error. Check Railway CORS + extension permissions.");
+    }
 
     if (!res.ok) {
       throw new Error(`API request failed (${res.status})`);

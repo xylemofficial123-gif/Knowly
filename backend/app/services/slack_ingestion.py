@@ -53,21 +53,8 @@ def _detect_slack_doc_status(msg: dict, full_text: str) -> str:
 def _get_client() -> WebClient:
     """Return a Slack WebClient. Prefers DB-stored OAuth bot token over env var."""
     try:
-        from app.core.token_store import get_connection
-        from app.core.database import SessionLocal
-        from app.models import OAuthConnection
-        db = SessionLocal()
-        try:
-            # Try any slack:{email} connection first
-            conn = db.query(OAuthConnection).filter(
-                OAuthConnection.id.like("slack:%")
-            ).first()
-            if not conn:
-                conn = db.query(OAuthConnection).filter(
-                    OAuthConnection.id == "slack"
-                ).first()
-        finally:
-            db.close()
+        from app.core.token_store import get_latest_slack_connection
+        conn = get_latest_slack_connection()
         if conn and conn.access_token:
             return WebClient(token=conn.access_token)
     except Exception as e:

@@ -21,6 +21,35 @@ def get_connection(provider: str) -> Optional[OAuthConnection]:
         db.close()
 
 
+def get_latest_slack_connection(workspace_id: str = "") -> Optional[OAuthConnection]:
+    """Return the most recent Slack OAuth connection.
+
+    If workspace_id is provided, prefer a matching workspace installation.
+    """
+    db = SessionLocal()
+    try:
+        q = db.query(OAuthConnection).filter(
+            OAuthConnection.id.like("slack:%")
+        )
+        if workspace_id:
+            by_workspace = q.filter(OAuthConnection.workspace_id == workspace_id) \
+                            .order_by(OAuthConnection.updated_at.desc(), OAuthConnection.connected_at.desc()) \
+                            .first()
+            if by_workspace:
+                return by_workspace
+        conn = q.order_by(OAuthConnection.updated_at.desc(), OAuthConnection.connected_at.desc()).first()
+        if conn:
+            return conn
+        return db.query(OAuthConnection).filter(
+            OAuthConnection.id == "slack"
+        ).first()
+    except Exception as e:
+        logger.error(f"token_store: failed to fetch latest slack connection: {e}")
+        return None
+    finally:
+        db.close()
+
+
 def get_token(provider: str) -> Optional[str]:
     conn = get_connection(provider)
     return conn.access_token if conn else None

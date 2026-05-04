@@ -27,7 +27,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
-from app.core.token_store import get_connection, save_connection, delete_connection
+from app.core.token_store import (
+    get_connection,
+    save_connection,
+    delete_connection,
+    get_latest_slack_connection,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/oauth", tags=["oauth"])
@@ -430,6 +435,16 @@ def slack_callback(code: str = "", state: str = "", error: str = ""):
         workspace_id=workspace_id,
         connected_by=user_email,
     )
+    save_connection(
+        "slack",
+        bot_token,
+        token_type="bot",
+        scope=scope,
+        bot_user_id=bot_user_id,
+        workspace_name=workspace_name,
+        workspace_id=workspace_id,
+        connected_by=user_email,
+    )
 
     logger.info(f"Slack OAuth connected — workspace={workspace_name}, connected_by={user_email}")
     return RedirectResponse(url=f"{settings.FRONTEND_URL}/ingest?slack=connected")
@@ -458,19 +473,7 @@ def slack_status(user_email: str = ""):
 
     if not conn:
         # Check for any slack connection (workspace is shared)
-        from app.core.database import SessionLocal
-        from app.models import OAuthConnection
-        db = SessionLocal()
-        try:
-            conn = db.query(OAuthConnection).filter(
-                OAuthConnection.id.like("slack:%")
-            ).first()
-            if not conn:
-                conn = db.query(OAuthConnection).filter(
-                    OAuthConnection.id == "slack"
-                ).first()
-        finally:
-            db.close()
+        conn = get_latest_slack_connection()
 
     if conn:
         return {
