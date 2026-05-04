@@ -151,6 +151,56 @@ def create_user(body: UserCreate, actor_email: str = Depends(require_admin)):
         db.close()
 
 
+@router.get("/users/me")
+def get_current_user(actor_email: str = Depends(get_current_user_email)):
+    """Return the signed-in user's role + group memberships.
+
+    Used by the frontend to decide which UI affordances to show — e.g. only
+    admins and team leads should see the "Connect Google" button.
+    """
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func
+        em = actor_email.strip().lower()
+        user = db.query(User).filter(func.lower(User.email) == em).first()
+        if not user:
+            # Auto-register on first call so a brand-new Clerk login works
+            user = User(email=em, role="member", display_name=em.split("@")[0])
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        memberships = db.query(GroupMembership).filter(
+            func.lower(GroupMembership.user_email) == em
+        ).all()
+        groups = db.query(Group).filter(
+            Group.id.in_([m.group_id for m in memberships])
+        ).all() if memberships else []
+
+        is_workspace_lead = user.role in ("admin", "group_admin")
+        is_per_group_lead = any(m.role == "group_admin" for m in memberships)
+        can_connect_sources = is_workspace_lead or is_per_group_lead
+
+        return {
+            "id": str(user.id),
+            "email": user.email,
+            "display_name": user.display_name or "",
+            "role": user.role,
+            "groups": [
+                {
+                    "id": str(g.id),
+                    "name": g.name,
+                    "role": next((m.role for m in memberships if str(m.group_id) == str(g.id)), "member"),
+                }
+                for g in groups
+            ],
+            # Convenience flag — frontend uses this to gate "Connect Google" etc.
+            "can_connect_sources": can_connect_sources,
+        }
+    finally:
+        db.close()
+
+
 @router.get("/users/{email:path}")
 def get_user(email: str):
     db = SessionLocal()

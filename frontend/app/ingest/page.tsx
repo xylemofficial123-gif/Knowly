@@ -143,6 +143,12 @@ export default function AdminPage() {
     connected_by?: string;
     connected_at?: string;
   }
+  interface MeUser {
+    role: string;
+    can_connect_sources: boolean;
+  }
+  const [me, setMe] = useState<MeUser | null>(null);
+
   const [clickupStatus, setClickupStatus] = useState<ClickUpStatus | null>(null);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [slackStatus, setSlackStatus] = useState<SlackStatus | null>(null);
@@ -371,10 +377,18 @@ export default function AdminPage() {
   const fetchSelfRole = async () => {
     if (!currentUserEmail) return;
     try {
-      const res = await authedFetch(`${API_URL}/api/users/${encodeURIComponent(currentUserEmail)}`);
+      // /users/me returns the authenticated user's role + a `can_connect_sources`
+      // flag that's true when role is admin/group_admin OR they're a group_admin
+      // in at least one group. Backend authoritative; frontend uses the flag
+      // to gate the "Connect Google" UI.
+      const res = await authedFetch(`${API_URL}/api/users/me`);
       if (!res.ok) return;
       const data = await res.json();
       if (data?.role) setSelfRole(data.role);
+      setMe({
+        role: data?.role || "member",
+        can_connect_sources: !!data?.can_connect_sources,
+      });
     } catch (e) {
       console.error("Failed to fetch current user role:", e);
     }
@@ -1022,19 +1036,27 @@ export default function AdminPage() {
 
               <div className="mt-4 flex gap-2">
                 {googleStatus?.connected ? (
+                  // Anyone whose account is already connected can disconnect.
+                  // (Edge case: a member whose role was downgraded after connecting
+                  //  should still be able to revoke their own connection.)
                   <button
                     onClick={disconnectGoogle}
                     className="px-4 py-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition"
                   >
                     Disconnect
                   </button>
-                ) : (
+                ) : me?.can_connect_sources ? (
                   <button
                     onClick={connectGoogle}
                     className="px-4 py-2 text-sm bg-[#16a34a] text-white rounded-lg hover:bg-[#15803d] transition font-medium"
                   >
                     Connect Google
                   </button>
+                ) : (
+                  <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 leading-relaxed">
+                    🔒 Only admins and team leads can connect Google. Your meetings and files are private —
+                    you can still query the Oracle and see decisions you have access to.
+                  </div>
                 )}
               </div>
             </div>
