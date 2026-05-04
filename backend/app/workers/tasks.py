@@ -124,15 +124,48 @@ def process_decision_extraction_for_message(self, text: str, chunk_id: str, sour
 
 
 def _get_all_google_user_emails(db) -> list[str]:
-    """Return all Xylem user emails that have a Google OAuth connection (google:{email} rows)."""
-    from app.models import OAuthConnection
+    """Return Xylem user emails with a Google connection — filtered to admins
+    and team leads only. Members' meetings are not ingested as canonical
+    company knowledge (privacy default). Defense in depth: even if a member
+    somehow has a connection in the DB (e.g., role was downgraded after they
+    connected), their data is now ignored on every sync cycle.
+    """
+    from app.models import OAuthConnection, User, GroupMembership
+    from sqlalchemy import func
     conns = db.query(OAuthConnection).filter(OAuthConnection.id.like("google:%")).all()
-    emails = [c.id[len("google:"):] for c in conns if c.id.startswith("google:")]
-    # Also include legacy single "google" connection as a fallback (no user email needed)
-    legacy = db.query(OAuthConnection).filter(OAuthConnection.id == "google").first()
-    if legacy and not emails:
-        emails = [None]
-    return emails
+    candidate_emails = [c.id[len("google:"):] for c in conns if c.id.startswith("google:")]
+
+    if not candidate_emails:
+        # Legacy single "google" connection has no email scope — keep working
+        # for older installs but log so the operator knows to migrate.
+        legacy = db.query(OAuthConnection).filter(OAuthConnection.id == "google").first()
+        if legacy:
+            logger.info("Using legacy 'google' connection (pre-multi-user)")
+            return [None]
+        return []
+
+    # Filter to admins + group_admins (workspace role) + per-group group_admins
+    allowed: list[str] = []
+    for email in candidate_emails:
+        em = email.strip().lower()
+        u = db.query(User).filter(func.lower(User.email) == em).first()
+        if u and u.role in ("admin", "group_admin"):
+            allowed.append(email)
+            continue
+        is_group_lead = (
+            db.query(GroupMembership)
+            .filter(
+                func.lower(GroupMembership.user_email) == em,
+                GroupMembership.role == "group_admin",
+            )
+            .first()
+        )
+        if is_group_lead:
+            allowed.append(email)
+        else:
+            logger.info(f"Skipping Google sync for {email} (not admin/group_admin)")
+
+    return allowed
 
 
 @celery_app.task(bind=True, max_retries=3)

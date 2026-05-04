@@ -139,3 +139,43 @@ def require_admin(
     if not user or user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
     return current_email
+
+
+def require_admin_or_group_admin(
+    current_email: str = Depends(get_current_user_email),
+    db: Session = Depends(get_db),
+) -> str:
+    """Allow admins and group_admins (team leaders) — used to gate Google
+    connection so individual members can't ingest their personal meetings.
+
+    Considers a user a group_admin if EITHER:
+      - User.role is "group_admin" (workspace-level team-lead role), OR
+      - They have at least one GroupMembership with role="group_admin"
+        (per-group team-lead — set by admin in the group management UI)
+    """
+    user = db.query(User).filter(func.lower(User.email) == current_email).first()
+    if not user:
+        raise HTTPException(status_code=403, detail="User not registered")
+
+    if user.role == "admin":
+        return current_email
+    if user.role == "group_admin":
+        return current_email
+
+    # Per-group group_admin — check GroupMembership
+    from app.models import GroupMembership
+    is_group_lead = (
+        db.query(GroupMembership)
+        .filter(
+            func.lower(GroupMembership.user_email) == current_email,
+            GroupMembership.role == "group_admin",
+        )
+        .first()
+    )
+    if is_group_lead:
+        return current_email
+
+    raise HTTPException(
+        status_code=403,
+        detail="Only admins and team leads can connect Google. Members can ask the Oracle but their meetings are not ingested.",
+    )

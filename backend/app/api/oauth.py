@@ -23,9 +23,10 @@ import logging
 import secrets
 import requests as http
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 
+from app.core.auth import require_admin_or_group_admin
 from app.core.config import settings
 from app.core.token_store import (
     get_connection,
@@ -182,16 +183,29 @@ def clickup_register_webhook():
 # ── Google ─────────────────────────────────────────────────────────────────────
 
 @router.get("/google/authorize")
-def google_authorize(user_email: str = ""):
+def google_authorize(
+    user_email: str = "",
+    actor_email: str = Depends(require_admin_or_group_admin),
+):
     """Return the Google OAuth URL for the frontend to redirect to.
 
-    user_email: the Xylem account email of the user initiating the connection.
-    The callback will save the token as 'google:{user_email}'.
+    Restricted to admins + group_admins (team leads). Members cannot connect
+    their Google account — only leadership's meetings get ingested as
+    canonical company knowledge. This is the company-wide privacy default;
+    members can still query the Oracle and see decisions they have ACL for.
+
+    user_email: the Xylem account email being connected. Must match the
+    authenticated user's own email — you can only connect your own Google.
     """
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=501, detail="GOOGLE_CLIENT_ID not configured")
     if not user_email:
         raise HTTPException(status_code=400, detail="user_email is required")
+    if user_email.strip().lower() != actor_email.strip().lower():
+        raise HTTPException(
+            status_code=403,
+            detail="You can only connect your own Google account. user_email must match your signed-in email.",
+        )
 
     state = secrets.token_urlsafe(32)
     # Store user_email in the state so the callback knows whose token to save
