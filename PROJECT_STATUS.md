@@ -1,6 +1,6 @@
 # Knowledge Agent — Project Status & Goals
 
-> **Last updated**: 2026-05-04 (Acronym buster wired into query path, Meet citation timestamps)
+> **Last updated**: 2026-05-04 (PRD success metrics: Deflection Rate + Decision Adherence)
 > **Owner**: Sachin Kurup (sachin.kurup@seedlinglabs.com)
 > **Company**: Seedling Labs
 
@@ -110,7 +110,7 @@ FastAPI Backend
 | Hallucination guardrails | DONE | All LLM prompts (Oracle, Research, Onboarding) enforce citation-only answers. Explicit "I cannot find a record" fallback when no sources match. Never invents rationale or context. |
 | User feedback on answers | DONE | Thumbs up/down on every Oracle answer. Stored in `answer_feedback` table. Viewable in admin Feedback tab. **Feedback-driven learning**: chunks used in helpful answers get score boost (+0.02), not helpful get penalty (-0.02), clamped to [-0.2, 0.2]. Applied during search re-ranking. |
 | Decision reversal tracking | DONE | `superseded_by`, `superseded_at`, `reversal_reason` fields on DecisionRecord. Auto-detection via semantic similarity + LLM confirmation during extraction/approval. Manual reversal via admin API. Full chain history. Agents surface reversal timeline in answers. |
-| Success metrics dashboard | DONE | Admin Metrics tab: total queries, daily usage chart, avg confidence, avg response time, agent/query type breakdown, feedback helpfulness rate. |
+| Success metrics dashboard | DONE | Admin Metrics tab: total queries, daily usage chart, avg confidence, avg response time, agent/query type breakdown, feedback helpfulness rate. **PRD success metrics**: Deflection Rate (Guardian alert match rate over 30d), Decision Adherence (active/total decisions + reversals over 30d), Retrieval Time vs PRD's <30s target. |
 
 ### Frontend
 
@@ -439,6 +439,7 @@ knowledge_system/
 
 | Date | Change |
 |------|--------|
+| 2026-05-04 | PRD success metrics: `GET /api/admin/metrics` now returns `deflection` (rate of Guardian alerts that found prior context, last 30d), `adherence` (active vs total DecisionRecords, reversals last 30d), plus the existing avg_response_time_ms compared against PRD's <30s retrieval-time target. Frontend Metrics tab gets a new "PRD Success Metrics" panel with three cards. Closes the PRD scorecard 100% within the team's stack. |
 | 2026-05-04 | Acronym buster wired into Oracle + Research synthesis prompts. New `extract_acronyms_from_query` (regex for non-universal uppercase tokens, 2-6 chars), `glossary_for_query` (capped at 5 terms, LRU-cached lookup via existing `bust_acronym` flow). Definitions injected as a Glossary section so answers auto-define internal jargon (LSQ, ICP, etc.) without users having to ask separately. Closes PRD feature 5 acronym-buster gap. |
 | 2026-05-04 | Meet citation timestamps. VTT/SRT ingestion in `meet_ingestion.ingest_transcript` now embeds `[mm:ss]` markers inline before each turn (new `_format_timestamp` helper normalizes VTT/SRT formats). Research Agent and Oracle citation builders extract the first marker per chunk via regex and append to the citation display ("Standup 14/02 at 14:32"). Markers survive word-level chunking. Limited to manual VTT/SRT uploads — auto-discovered Gemini summary docs don't have timestamps to surface. Closes PRD feature 3 citation-timestamp gap for the supported path. |
 | 2026-05-03 | Diagnostic endpoint `GET /api/admin/env-check` reports which LLM keys (`GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`) are visible on the **backend** vs the **worker** service, plus a live `generate("ping")` call from the worker. Caught a prod issue: Railway scopes env vars per-service; the worker had no LLM keys, so every Celery-side feature (entity extraction, decision extraction, ghost docs, re-litigation, Guardian, drift detection, Meet/Drive sync LLM steps) was silently failing. After copying keys to the worker, all background features functional. |

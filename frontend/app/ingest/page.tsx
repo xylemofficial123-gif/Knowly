@@ -54,6 +54,18 @@ interface Metrics {
     not_helpful: number;
     helpfulness_rate: number;
   };
+  deflection?: {
+    rate: number;
+    checks_total: number;
+    matches_found: number;
+    window_days: number;
+  };
+  adherence?: {
+    rate: number;
+    total_decisions: number;
+    active_decisions: number;
+    reversed_last_30d: number;
+  };
   agent_usage: Record<string, number>;
   query_type_usage: Record<string, number>;
   daily_usage: { date: string; count: number }[];
@@ -1123,6 +1135,68 @@ export default function AdminPage() {
               value={`${Math.round(metrics.overview.avg_response_time_ms / 1000)}s`}
             />
           </div>
+
+          {/* PRD Success Metrics */}
+          {(metrics.deflection || metrics.adherence) && (
+            <div className="bg-white rounded-lg border p-5">
+              <div className="flex items-baseline justify-between mb-4">
+                <h3 className="font-medium">PRD Success Metrics</h3>
+                <span className="text-xs text-gray-400">last 30 days</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Deflection Rate */}
+                {metrics.deflection && (
+                  <div className="border rounded-lg p-4">
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">Deflection Rate</span>
+                      <span className="text-2xl font-black">{metrics.deflection.rate}%</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mb-2">
+                      Of incoming Slack/ClickUp content, {metrics.deflection.rate}% triggered a redundancy alert
+                      (system caught prior context).
+                    </p>
+                    <div className="text-[11px] text-gray-400 font-mono">
+                      {metrics.deflection.matches_found} matched / {metrics.deflection.checks_total} checks
+                    </div>
+                  </div>
+                )}
+
+                {/* Decision Adherence */}
+                {metrics.adherence && (
+                  <div className="border rounded-lg p-4">
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">Decision Adherence</span>
+                      <span className="text-2xl font-black">{metrics.adherence.rate}%</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mb-2">
+                      {metrics.adherence.active_decisions} of {metrics.adherence.total_decisions} decisions still active.
+                      Higher = team sticks to recorded decisions.
+                    </p>
+                    <div className="text-[11px] text-gray-400 font-mono">
+                      {metrics.adherence.reversed_last_30d} reversed in 30d
+                    </div>
+                  </div>
+                )}
+
+                {/* Retrieval Time vs PRD target */}
+                <div className="border rounded-lg p-4">
+                  <div className="flex items-baseline justify-between mb-1">
+                    <span className="text-xs uppercase tracking-wider text-gray-500 font-bold">Retrieval Time</span>
+                    <span className="text-2xl font-black">
+                      {(metrics.overview.avg_response_time_ms / 1000).toFixed(1)}s
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mb-2">
+                    PRD target: under 30s (vs. 15min of manual digging).
+                    {metrics.overview.avg_response_time_ms < 30000 ? " Hitting target." : " Above target."}
+                  </p>
+                  <div className="text-[11px] text-gray-400 font-mono">
+                    avg across {metrics.overview.total_queries} queries
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Feedback Summary */}
           <div className="bg-white rounded-lg border p-5">

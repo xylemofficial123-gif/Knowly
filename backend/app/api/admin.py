@@ -459,6 +459,57 @@ def get_metrics():
 
         unique_users = db.query(func.count(func.distinct(AuditLog.user_email))).scalar() or 0
 
+        # ── Deflection Rate (PRD success metric) ──────────────────────────
+        # Every Slack/ClickUp message goes through the Guardian Agent which
+        # asks "has this topic already been discussed?". A high match rate
+        # means the system is actively surfacing prior context — that's the
+        # "deflection" the PRD wants to measure.
+        from app.models import GuardianAlert
+        thirty_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+        guardian_total = (
+            db.query(GuardianAlert)
+            .filter(GuardianAlert.created_at >= thirty_days_ago)
+            .count()
+        )
+        # match_count is stored as a string ("0", "1", "2", ...). Anything
+        # other than "0" or null means we found prior context.
+        guardian_with_matches = (
+            db.query(GuardianAlert)
+            .filter(
+                GuardianAlert.created_at >= thirty_days_ago,
+                GuardianAlert.match_count.isnot(None),
+                GuardianAlert.match_count != "0",
+                GuardianAlert.match_count != "",
+            )
+            .count()
+        )
+        deflection_rate = (
+            (guardian_with_matches / guardian_total * 100) if guardian_total > 0 else 0.0
+        )
+
+        # ── Decision Adherence (PRD success metric) ───────────────────────
+        # PRD: "Frequency with which the team sticks to recorded decisions
+        # vs. unintentionally drifting." Adherence = active decisions /
+        # total decisions; reversals indicate drift over time.
+        total_decisions_count = db.query(DecisionRecord).count()
+        active_decisions = (
+            db.query(DecisionRecord)
+            .filter(DecisionRecord.status == "active")
+            .count()
+        )
+        recently_reversed = (
+            db.query(DecisionRecord)
+            .filter(
+                DecisionRecord.superseded_at.isnot(None),
+                DecisionRecord.superseded_at >= thirty_days_ago,
+            )
+            .count()
+        )
+        adherence_rate = (
+            (active_decisions / total_decisions_count * 100)
+            if total_decisions_count > 0 else 100.0
+        )
+
         # Daily query counts (last 7 days)
         daily_counts = (
             db.query(
@@ -486,6 +537,19 @@ def get_metrics():
                 "helpful": helpful_count,
                 "not_helpful": not_helpful_count,
                 "helpfulness_rate": round(helpfulness_rate, 1),
+            },
+            # PRD success metrics — last 30 days
+            "deflection": {
+                "rate": round(deflection_rate, 1),
+                "checks_total": guardian_total,
+                "matches_found": guardian_with_matches,
+                "window_days": 30,
+            },
+            "adherence": {
+                "rate": round(adherence_rate, 1),
+                "total_decisions": total_decisions_count,
+                "active_decisions": active_decisions,
+                "reversed_last_30d": recently_reversed,
             },
             "agent_usage": agent_usage,
             "query_type_usage": query_type_usage,
