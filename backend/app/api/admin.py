@@ -943,6 +943,74 @@ def clear_source(source: str):
 from app.core.auth import require_admin
 
 
+class GhostDocTestRequest(BaseModel):
+    email: str
+    decision: Optional[str] = "Test decision: deprecate the legacy authentication module"
+    rationale: Optional[str] = "It's a synthetic test from /api/admin/test-ghost-doc"
+
+
+@router.post("/test-ghost-doc")
+def test_ghost_doc(req: GhostDocTestRequest, actor: str = Depends(require_admin)):
+    """Synthetic end-to-end test of the Meet → Slack ghost-documentation pipeline.
+
+    Walks the same code path as a real Meet ingestion would:
+      1. Resolve `email` → Slack user ID via users.lookupByEmail
+      2. Fire `send_ghost_doc_prompt` with a fake decision
+
+    Returns each step's success/failure so you can pinpoint what's broken
+    (token missing, email not in workspace, etc.) without waiting 30+ min
+    for a real Meet sync cycle.
+    """
+    result = {
+        "input_email": req.email,
+        "step_1_slack_lookup": {"ok": False, "slack_user_id": None, "error": None},
+        "step_2_send_dm": {"ok": False, "error": None},
+        "overall": "FAIL",
+    }
+    try:
+        from app.services.ghost_docs import slack_email_to_user_id, send_ghost_doc_prompt
+    except Exception as e:
+        result["step_1_slack_lookup"]["error"] = f"import failed: {e}"
+        return result
+
+    # Step 1: email → Slack user ID
+    try:
+        slack_id = slack_email_to_user_id(req.email)
+        if slack_id:
+            result["step_1_slack_lookup"]["ok"] = True
+            result["step_1_slack_lookup"]["slack_user_id"] = slack_id
+        else:
+            result["step_1_slack_lookup"]["error"] = (
+                "Slack returned no user — either SLACK_BOT_TOKEN is missing/invalid "
+                "on the API service, or the email is not a member of the Slack workspace."
+            )
+            return result
+    except Exception as e:
+        result["step_1_slack_lookup"]["error"] = f"{type(e).__name__}: {e}"[:300]
+        return result
+
+    # Step 2: send the DM with a fake decision
+    fake_decision = {
+        "decision": req.decision,
+        "rationale": req.rationale,
+        "options_considered": ["Option A (test)", "Option B (test)"],
+        "acl_override": ["public"],
+    }
+    try:
+        send_ghost_doc_prompt(
+            slack_id,
+            fake_decision,
+            chunk_id="test-ghost-doc-synthetic",
+            source_url="https://example.com/synthetic-test",
+        )
+        result["step_2_send_dm"]["ok"] = True
+        result["overall"] = "PASS"
+        return result
+    except Exception as e:
+        result["step_2_send_dm"]["error"] = f"{type(e).__name__}: {e}"[:300]
+        return result
+
+
 @router.get("/env-check")
 def env_check(actor: str = Depends(require_admin)):
     """Diagnose which LLM keys are visible on each Railway service.

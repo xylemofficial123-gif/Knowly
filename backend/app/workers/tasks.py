@@ -329,15 +329,25 @@ def process_guardian_check(
 
 @celery_app.task
 def probe_llm_env():
-    """Run on the Celery worker; reports which LLM keys the worker can see and
-    whether a tiny `generate()` call actually succeeds. Used by the admin
-    /env-check endpoint to diagnose Railway env-var scoping mismatches."""
+    """Run on the Celery worker; reports which keys the worker can see + a
+    live LLM call. Used by /api/admin/env-check to diagnose Railway env-var
+    scoping mismatches."""
     from app.core.config import settings
 
     keys_present = {
+        # LLM
         "gemini": bool(settings.GEMINI_API_KEY),
         "groq": bool(settings.GROQ_API_KEY),
         "openrouter": bool(settings.OPENROUTER_API_KEY),
+        # Slack — needed for ghost docs, re-litigation alerts, Guardian thread replies
+        "slack_bot_token": bool(settings.SLACK_BOT_TOKEN),
+        # Google — needed for Drive/Meet/Calendar background sync
+        "google_client_id": bool(settings.GOOGLE_CLIENT_ID),
+        "google_client_secret": bool(settings.GOOGLE_CLIENT_SECRET),
+        # Infrastructure
+        "database_url": bool(settings.DATABASE_URL),
+        "redis_url": bool(settings.REDIS_URL),
+        "qdrant_url": bool(settings.QDRANT_URL),
     }
     ping = {"ok": False, "error": None, "response_preview": None}
     try:
@@ -347,7 +357,24 @@ def probe_llm_env():
         ping["response_preview"] = (out or "")[:60]
     except Exception as e:
         ping["error"] = f"{type(e).__name__}: {e}"[:300]
-    return {"keys_present": keys_present, "live_call": ping}
+
+    # Live Slack auth check — confirms the bot token actually works
+    slack_check = {"ok": False, "error": None, "team": None, "user": None}
+    if keys_present["slack_bot_token"]:
+        try:
+            from slack_sdk import WebClient
+            client = WebClient(token=settings.SLACK_BOT_TOKEN)
+            r = client.auth_test()
+            if r.get("ok"):
+                slack_check["ok"] = True
+                slack_check["team"] = r.get("team")
+                slack_check["user"] = r.get("user")
+            else:
+                slack_check["error"] = str(r)[:200]
+        except Exception as e:
+            slack_check["error"] = f"{type(e).__name__}: {e}"[:300]
+
+    return {"keys_present": keys_present, "live_call": ping, "slack_check": slack_check}
 
 
 @celery_app.task(bind=True, max_retries=2)
