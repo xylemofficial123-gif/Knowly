@@ -1847,31 +1847,43 @@ def cleanup_calendar_decisions(actor: str = Depends(require_admin)):
     """Delete decision records whose source chunks all came from Calendar.
 
     Calendar events were being mis-classified as decisions in earlier runs
-    (e.g. "Alice will attend Standup"). This endpoint walks every active
-    decision, looks up its source_chunk_ids → parent Document.source, and
-    deletes the row if every linked source is "calendar".
+    (e.g. "Alice will attend Standup"). This endpoint walks every decision
+    and deletes any whose source chunks live in a Document with
+    source="calendar".
+
+    Implementation: pre-build a chunk_id → source map in ONE query so we
+    don't run a join per decision (the per-loop join was hitting
+    InFailedSqlTransaction when a chunk_id string didn't match the UUID
+    column type and the failed sub-query left the connection broken).
     """
     from app.models import Chunk, Document
+
     db = SessionLocal()
     try:
+        # One pass: every chunk → its parent Document.source.
+        chunk_source_rows = (
+            db.query(Chunk.id, Document.source)
+            .join(Document, Chunk.document_id == Document.id)
+            .all()
+        )
+        source_by_chunk_id: dict[str, str] = {
+            str(cid): (src or "") for cid, src in chunk_source_rows
+        }
+
         all_decisions = db.query(DecisionRecord).all()
         deleted_ids: list[str] = []
         for d in all_decisions:
-            chunk_ids = list(d.source_chunk_ids or [])
+            chunk_ids = [str(x) for x in (d.source_chunk_ids or [])]
             if not chunk_ids:
                 continue
-            # Resolve each chunk_id (UUID string) → Document.source
-            try:
-                rows = (
-                    db.query(Document.source)
-                    .join(Chunk, Chunk.document_id == Document.id)
-                    .filter(Chunk.id.in_(chunk_ids))
-                    .all()
-                )
-            except Exception:
-                rows = []
-            sources = {r[0] for r in rows} if rows else set()
-            if sources == {"calendar"}:
+            sources = {
+                source_by_chunk_id[cid]
+                for cid in chunk_ids
+                if cid in source_by_chunk_id
+            }
+            # Only nuke if every resolvable source is calendar (and at least
+            # one resolved — empty set means we can't tell, so leave it alone).
+            if sources and sources == {"calendar"}:
                 deleted_ids.append(str(d.id))
                 db.delete(d)
         db.commit()
