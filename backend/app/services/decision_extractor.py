@@ -171,14 +171,16 @@ def process_decision(decision: dict, chunk: Chunk, db: Session):
     return "discarded"
 
 
-SKIP_SOURCES_FOR_DECISIONS = {"calendar"}
+SKIP_SOURCES_FOR_DECISIONS = {"calendar", "clickup"}
 """Sources whose chunks are NEVER decision candidates.
 
-Calendar events ('Alice will attend Standup on Monday') are facts, not
-governance decisions. Letting them flow into decision extraction produces
-'X attends meeting Y' rows in the decision log and creates noise for the
-drift sweep. Calendar content remains queryable via Oracle retrieval; it
-just doesn't pollute the decision audit trail.
+- "calendar": events like 'Alice will attend Standup' are facts, not decisions.
+- "clickup": task descriptions and tutorial content ('Click the Invite button',
+  'Update your status to In Progress') are imperatives or instructions, not
+  governance decisions. Tasks belong in their own surface.
+
+Both remain queryable via Oracle retrieval; they just don't pollute the
+decision audit trail or trigger drift-sweep false positives.
 """
 
 

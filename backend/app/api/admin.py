@@ -1868,14 +1868,16 @@ def clear_drift_alerts(actor: str = Depends(require_admin)):
         db.close()
 
 
-@router.delete("/decisions/calendar-cleanup")
-def cleanup_calendar_decisions(actor: str = Depends(require_admin)):
-    """Delete decision records whose source chunks all came from Calendar.
+@router.delete("/decisions/cleanup-noise")
+def cleanup_noise_decisions(actor: str = Depends(require_admin)):
+    """Delete decision records whose source chunks all came from a noisy source.
 
-    Calendar events were being mis-classified as decisions in earlier runs
-    (e.g. "Alice will attend Standup"). This endpoint walks every decision
-    and deletes any whose source chunks live in a Document with
-    source="calendar".
+    "Noisy" sources (calendar, clickup) generate non-decisions that get
+    mis-classified by the extractor — calendar events ("Alice attends X"),
+    ClickUp tutorial copy ("Click the Invite button"), task descriptions
+    framed as imperatives. These same sources are now in
+    SKIP_SOURCES_FOR_DECISIONS at the extractor, so future ingests stay
+    clean; this endpoint cleans the back-catalog.
 
     Implementation: pre-build a chunk_id → source map in ONE query so we
     don't run a join per decision (the per-loop join was hitting
@@ -1883,6 +1885,7 @@ def cleanup_calendar_decisions(actor: str = Depends(require_admin)):
     column type and the failed sub-query left the connection broken).
     """
     from app.models import Chunk, Document
+    from app.services.decision_extractor import SKIP_SOURCES_FOR_DECISIONS as NOISY_SOURCES
 
     db = SessionLocal()
     try:
@@ -1897,6 +1900,7 @@ def cleanup_calendar_decisions(actor: str = Depends(require_admin)):
         }
 
         all_decisions = db.query(DecisionRecord).all()
+        deleted_by_source: dict[str, int] = {}
         deleted_ids: list[str] = []
         for d in all_decisions:
             chunk_ids = [str(x) for x in (d.source_chunk_ids or [])]
@@ -1907,16 +1911,30 @@ def cleanup_calendar_decisions(actor: str = Depends(require_admin)):
                 for cid in chunk_ids
                 if cid in source_by_chunk_id
             }
-            # Only nuke if every resolvable source is calendar (and at least
-            # one resolved — empty set means we can't tell, so leave it alone).
-            if sources and sources == {"calendar"}:
+            # Only nuke if EVERY resolvable source is noisy (and at least
+            # one resolved — empty set means we can't tell, so leave alone).
+            if sources and sources <= NOISY_SOURCES:
                 deleted_ids.append(str(d.id))
+                for s in sources:
+                    deleted_by_source[s] = deleted_by_source.get(s, 0) + 1
                 db.delete(d)
         db.commit()
-        return {"status": "ok", "deleted": len(deleted_ids), "ids": deleted_ids}
+        return {
+            "status": "ok",
+            "deleted": len(deleted_ids),
+            "deleted_by_source": deleted_by_source,
+            "ids": deleted_ids,
+        }
     except Exception as e:
         db.rollback()
-        logger.error(f"calendar-cleanup failed: {e}")
+        logger.error(f"cleanup-noise failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# Back-compat alias — older browser snippets / docs may still use the
+# original endpoint name.
+@router.delete("/decisions/calendar-cleanup")
+def cleanup_calendar_decisions_alias(actor: str = Depends(require_admin)):
+    return cleanup_noise_decisions(actor=actor)
