@@ -911,7 +911,7 @@ export default function AdminPage() {
 
       {loading && (
         <div className="flex items-center gap-2 p-4">
-          <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+          <div className="animate-spin h-4 w-4 border-2 border-accent border-t-transparent rounded-full"></div>
           Loading...
         </div>
       )}
@@ -926,7 +926,7 @@ export default function AdminPage() {
 
           {connectionsLoading && (
             <div className="flex items-center gap-2 text-sm text-gray-400">
-              <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+              <div className="animate-spin h-4 w-4 border-2 border-accent border-t-transparent rounded-full"></div>
               Checking connection status...
             </div>
           )}
@@ -1183,11 +1183,11 @@ export default function AdminPage() {
                       <span className="text-2xl font-black">{metrics.deflection.rate}%</span>
                     </div>
                     <p className="text-[11px] text-gray-500 mb-2">
-                      Of incoming Slack/ClickUp content, {metrics.deflection.rate}% triggered a redundancy alert
-                      (system caught prior context).
+                      Share of evaluated events where Xylem surfaced prior context — Guardian re-litigation
+                      catches plus Decision Drift contradictions.
                     </p>
                     <div className="text-[11px] text-gray-400 font-mono">
-                      {metrics.deflection.matches_found} matched / {metrics.deflection.checks_total} checks
+                      {metrics.deflection.matches_found} caught / {metrics.deflection.checks_total} evaluated
                     </div>
                   </div>
                 )}
@@ -1328,7 +1328,7 @@ export default function AdminPage() {
                     >
                       <span className="text-xs text-gray-600">{d.count}</span>
                       <div
-                        className="w-full bg-blue-500 rounded-t"
+                        className="w-full bg-accent rounded-t"
                         style={{ height: `${Math.max(height, 4)}%` }}
                       ></div>
                       <span className="text-xs text-gray-400">
@@ -1443,7 +1443,7 @@ export default function AdminPage() {
                     href={item.source_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-4 py-1.5 text-sm text-blue-600 hover:underline"
+                    className="px-4 py-1.5 text-sm text-accent hover:underline"
                   >
                     View source
                   </a>
@@ -1529,7 +1529,7 @@ export default function AdminPage() {
                     onClick={() => toggleSource(source.id)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
                         settings.enabled_sources?.includes(source.id)
-                        ? "bg-blue-600"
+                        ? "bg-accent"
                         : "bg-gray-300"
                     }`}
                   >
@@ -1563,12 +1563,12 @@ export default function AdminPage() {
                     return (
                       <div
                         key={id}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full border border-blue-100 text-sm"
+                        className="flex items-center gap-2 px-3 py-1.5 bg-accent-soft text-green-800 rounded-full border border-green-100 text-sm"
                       >
                         <span className="font-medium">{folder?.name || id}</span>
                         <button
                           onClick={() => removeFolder(id)}
-                          className="text-blue-400 hover:text-red-500 transition-colors leading-none"
+                          className="text-accent/60 hover:text-red-500 transition-colors leading-none"
                         >
                           &times;
                         </button>
@@ -1594,7 +1594,7 @@ export default function AdminPage() {
                   value={folderSearch}
                   onChange={(e) => setFolderSearch(e.target.value)}
                   placeholder="Type a folder name to filter..."
-                  className="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm mb-3"
+                  className="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-accent focus:border-accent outline-none text-sm mb-3"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
                   {availableFolders
@@ -1611,7 +1611,7 @@ export default function AdminPage() {
                           className={`text-left p-3 rounded-lg border text-sm transition-all shadow-sm ${
                             already
                               ? "bg-gray-700/40 text-gray-500 border-gray-600 cursor-default"
-                              : "border-gray-600 hover:border-blue-400 hover:bg-blue-500/10 text-gray-200"
+                              : "border-gray-600 hover:border-green-400 hover:bg-accent/10 text-gray-200"
                           }`}
                         >
                           <div className="font-medium truncate">📁 {folder.name}</div>
@@ -1666,7 +1666,7 @@ export default function AdminPage() {
                 disabled={!canManageUsers}
                 className={`flex-1 min-w-48 px-4 py-2 rounded-lg border text-sm outline-none ${
                   canManageUsers
-                    ? "focus:ring-2 focus:ring-blue-500"
+                    ? "focus:ring-2 focus:ring-accent"
                     : "bg-gray-100 text-gray-400 cursor-not-allowed"
                 }`}
               />
@@ -1676,7 +1676,7 @@ export default function AdminPage() {
                 disabled={!canManageUsers}
                 className={`px-4 py-2 rounded-lg border text-sm outline-none ${
                   canManageUsers
-                    ? "focus:ring-2 focus:ring-blue-500"
+                    ? "focus:ring-2 focus:ring-accent"
                     : "bg-gray-100 text-gray-400 cursor-not-allowed"
                 }`}
               >
@@ -1689,7 +1689,7 @@ export default function AdminPage() {
                 disabled={!canManageUsers}
                 className={`px-5 py-2 rounded-lg text-sm font-medium ${
                   canManageUsers
-                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    ? "bg-accent text-white hover:bg-accent/90"
                     : "bg-gray-200 text-gray-500 cursor-not-allowed"
                 }`}
               >
@@ -1771,18 +1771,18 @@ export default function AdminPage() {
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
                   placeholder="Group name (e.g. Engineering)"
-                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 />
                 <input
                   type="text"
                   value={newGroupDesc}
                   onChange={(e) => setNewGroupDesc(e.target.value)}
                   placeholder="Description (optional)"
-                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 />
                 <button
                   onClick={createGroup}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                  className="w-full px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90"
                 >
                   Create Group
                 </button>
@@ -1794,7 +1794,7 @@ export default function AdminPage() {
               <div
                 key={g.id}
                 onClick={() => fetchGroupDetail(g.id)}
-                className={`p-4 bg-white rounded-xl border cursor-pointer hover:border-blue-400 transition-colors ${selectedGroup?.id === g.id ? "border-blue-500 ring-2 ring-blue-200" : ""}`}
+                className={`p-4 bg-white rounded-xl border cursor-pointer hover:border-green-400 transition-colors ${selectedGroup?.id === g.id ? "border-accent ring-2 ring-blue-200" : ""}`}
               >
                 <div className="font-medium text-sm">{g.name}</div>
                 <div className="text-xs text-gray-500 mt-0.5">{g.description || "No description"}</div>
@@ -1832,7 +1832,7 @@ export default function AdminPage() {
                       value={addMemberEmail}
                       onChange={(e) => setAddMemberEmail(e.target.value)}
                       placeholder="user@company.com"
-                      className="flex-1 px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      className="flex-1 px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                     />
                     <select
                       value={addMemberRole}
@@ -1844,7 +1844,7 @@ export default function AdminPage() {
                     </select>
                     <button
                       onClick={() => addMember(selectedGroup.id)}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                      className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90"
                     >
                       Add
                     </button>
@@ -1892,7 +1892,7 @@ export default function AdminPage() {
                               href={d.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs px-2 py-1 rounded border border-blue-200 text-blue-700 hover:bg-blue-50"
+                              className="text-xs px-2 py-1 rounded border border-green-200 text-green-800 hover:bg-accent-soft"
                             >
                               Open
                             </a>
@@ -1948,7 +1948,7 @@ export default function AdminPage() {
                 <select
                   value={newRuleSource}
                   onChange={(e) => setNewRuleSource(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 >
                   <option value="slack">Slack Channel</option>
                   <option value="drive">Drive Folder</option>
@@ -1964,7 +1964,7 @@ export default function AdminPage() {
                   value={newRuleIdentifier}
                   onChange={(e) => setNewRuleIdentifier(e.target.value)}
                   placeholder={newRuleSource === "slack" ? "C0123ABCDEF" : "folder-or-space-id"}
-                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 />
               </div>
               <div>
@@ -1974,7 +1974,7 @@ export default function AdminPage() {
                   value={newRuleName}
                   onChange={(e) => setNewRuleName(e.target.value)}
                   placeholder="#hr-private, Salary Docs, etc."
-                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 />
               </div>
               <div>
@@ -1984,14 +1984,14 @@ export default function AdminPage() {
                   value={newRuleReason}
                   onChange={(e) => setNewRuleReason(e.target.value)}
                   placeholder="Sensitive HR content"
-                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 />
               </div>
             </div>
             <button
               onClick={createExclusionRule}
               disabled={!newRuleIdentifier.trim()}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-40 transition-colors"
+              className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 disabled:opacity-40 transition-colors"
             >
               Add No-Index Rule
             </button>
@@ -2021,7 +2021,7 @@ export default function AdminPage() {
                       <td className="px-4 py-3">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           rule.source_type === "slack" ? "bg-teal-100 text-teal-700" :
-                          rule.source_type === "drive" ? "bg-blue-100 text-blue-700" :
+                          rule.source_type === "drive" ? "bg-green-100 text-green-800" :
                           "bg-green-100 text-green-700"
                         }`}>
                           {rule.source_type}
@@ -2084,7 +2084,7 @@ export default function AdminPage() {
                       disabled={disabled}
                       className={`p-3 rounded-lg border text-left transition-colors ${
                         uploadScope === s.value
-                          ? "border-blue-500 bg-blue-50"
+                          ? "border-accent bg-accent-soft"
                           : disabled
                             ? "border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed"
                             : "border-gray-200 hover:border-gray-300"
@@ -2104,7 +2104,7 @@ export default function AdminPage() {
                 <select
                   value={uploadGroupId}
                   onChange={(e) => setUploadGroupId(e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 >
                   <option value="">— Select a group —</option>
                   {groups.map((g) => (
@@ -2124,7 +2124,7 @@ export default function AdminPage() {
                   value={uploadSharedWith}
                   onChange={(e) => setUploadSharedWith(e.target.value)}
                   placeholder="colleague@company.com, another@company.com"
-                  className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
                 />
               </div>
             )}
@@ -2136,7 +2136,7 @@ export default function AdminPage() {
                 value={uploadTitle}
                 onChange={(e) => setUploadTitle(e.target.value)}
                 placeholder="Leave blank to use filename"
-                className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full px-4 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-accent outline-none"
               />
             </div>
 
@@ -2146,13 +2146,13 @@ export default function AdminPage() {
                 type="file"
                 accept=".txt,.md,.pdf,.doc,.docx"
                 onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-accent-soft file:text-green-800 hover:file:bg-green-100"
               />
             </div>
 
             <button
               onClick={handleUpload}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+              className="w-full py-3 bg-accent text-white rounded-xl font-medium hover:bg-accent/90 transition-colors"
             >
               Upload Document
             </button>

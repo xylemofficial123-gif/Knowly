@@ -589,19 +589,24 @@ def get_metrics():
         unique_users = db.query(func.count(func.distinct(AuditLog.user_email))).scalar() or 0
 
         # ── Deflection Rate (PRD success metric) ──────────────────────────
-        # Every Slack/ClickUp message goes through the Guardian Agent which
-        # asks "has this topic already been discussed?". A high match rate
-        # means the system is actively surfacing prior context — that's the
-        # "deflection" the PRD wants to measure.
-        from app.models import GuardianAlert
+        # Two signals contribute:
+        #  1) Guardian Agent — real-time Slack/ClickUp re-litigation catches.
+        #  2) Decision Drift Sweep — periodic detection of contradictory
+        #     active decisions across the entire log.
+        # Both qualify as "the system surfacing prior context the team would
+        # otherwise miss" — exactly what the PRD calls deflection. Combining
+        # them gives a meaningful rate even when real-time Slack traffic is
+        # light (which it usually is at small scale).
+        from app.models import GuardianAlert, DecisionDriftAlert
         thirty_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+
         guardian_total = (
             db.query(GuardianAlert)
             .filter(GuardianAlert.created_at >= thirty_days_ago)
             .count()
         )
-        # match_count is stored as a string ("0", "1", "2", ...). Anything
-        # other than "0" or null means we found prior context.
+        # match_count is stored as a string ("0", "1", ...). Anything other
+        # than "0" or null means we found prior context.
         guardian_with_matches = (
             db.query(GuardianAlert)
             .filter(
@@ -612,9 +617,26 @@ def get_metrics():
             )
             .count()
         )
-        deflection_rate = (
-            (guardian_with_matches / guardian_total * 100) if guardian_total > 0 else 0.0
+
+        drift_alerts_total = (
+            db.query(DecisionDriftAlert)
+            .filter(DecisionDriftAlert.detected_at >= thirty_days_ago)
+            .count()
         )
+        drift_alerts_caught = (
+            db.query(DecisionDriftAlert)
+            .filter(
+                DecisionDriftAlert.detected_at >= thirty_days_ago,
+                DecisionDriftAlert.contradicts == "yes",
+            )
+            .count()
+        )
+
+        catches = guardian_with_matches + drift_alerts_caught
+        # Denominator: every event we evaluated. Floor at 1 so we don't
+        # divide by zero when there's been no Slack traffic AND no drift.
+        opportunities = max(guardian_total + drift_alerts_total, 1)
+        deflection_rate = (catches / opportunities * 100)
 
         # ── Decision Adherence (PRD success metric) ───────────────────────
         # PRD: "Frequency with which the team sticks to recorded decisions
@@ -670,8 +692,12 @@ def get_metrics():
             # PRD success metrics — last 30 days
             "deflection": {
                 "rate": round(deflection_rate, 1),
-                "checks_total": guardian_total,
-                "matches_found": guardian_with_matches,
+                "checks_total": opportunities,
+                "matches_found": catches,
+                "guardian_checks": guardian_total,
+                "guardian_matches": guardian_with_matches,
+                "drift_checks": drift_alerts_total,
+                "drift_caught": drift_alerts_caught,
                 "window_days": 30,
             },
             "adherence": {
