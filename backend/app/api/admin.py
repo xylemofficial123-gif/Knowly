@@ -1938,3 +1938,69 @@ def cleanup_noise_decisions(actor: str = Depends(require_admin)):
 @router.delete("/decisions/calendar-cleanup")
 def cleanup_calendar_decisions_alias(actor: str = Depends(require_admin)):
     return cleanup_noise_decisions(actor=actor)
+
+
+@router.get("/debug/meet-transcripts")
+def debug_meet_transcripts(actor: str = Depends(require_admin)):
+    """Inspect what the Meet transcript matcher is finding (or missing) in
+    the connected Drive. Returns:
+      - which user_email's Drive we queried
+      - whether the 'Meet Recordings' folder was found
+      - the raw query used
+      - the matched file list (id, name, mimeType, modifiedTime)
+    Intended for diagnosing why transcripts_ingested keeps coming back as 0.
+    """
+    from app.models import OAuthConnection
+    from app.services.meet_ingestion import (
+        _find_meet_recordings_folder_id,
+        _get_drive_service,
+        find_meet_transcripts,
+    )
+
+    db = SessionLocal()
+    try:
+        conns = db.query(OAuthConnection).filter(OAuthConnection.id.like("google:%")).all()
+        connected_emails = [c.id[len("google:"):] for c in conns]
+    finally:
+        db.close()
+
+    out = {"connected_emails": connected_emails, "per_account": []}
+    for email in connected_emails or [None]:
+        per: dict = {"email": email or "(default)"}
+        try:
+            service = _get_drive_service(email)
+            per["meet_recordings_folder_id"] = _find_meet_recordings_folder_id(service)
+
+            # Same query find_meet_transcripts builds — replicated here so we
+            # can show it back to the admin without changing the helper.
+            or_clauses = [
+                "name contains 'Notes by Gemini'",
+                "name contains 'transcript'",
+                "name contains 'Notes'",
+            ]
+            if per["meet_recordings_folder_id"]:
+                or_clauses.append(f"'{per['meet_recordings_folder_id']}' in parents")
+            query = (
+                "mimeType='application/vnd.google-apps.document' "
+                f"and ({' or '.join(or_clauses)}) "
+                "and trashed=false"
+            )
+            per["query"] = query
+
+            matches = find_meet_transcripts(email)
+            per["match_count"] = len(matches)
+            per["matches"] = [
+                {
+                    "id": f.get("id"),
+                    "name": f.get("name"),
+                    "mimeType": f.get("mimeType"),
+                    "modifiedTime": f.get("modifiedTime"),
+                    "owners": [o.get("emailAddress") for o in (f.get("owners") or [])],
+                }
+                for f in matches[:20]
+            ]
+        except Exception as e:
+            per["error"] = f"{type(e).__name__}: {e}"
+        out["per_account"].append(per)
+
+    return out
