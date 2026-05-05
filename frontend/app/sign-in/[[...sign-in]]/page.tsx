@@ -56,8 +56,18 @@ export default function SignInPage() {
 
       <main style={{
         flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-        flexDirection: "column", padding: "48px 24px 64px", textAlign: "center",
+        flexDirection: "column", padding: "32px 24px 64px", textAlign: "center",
       }}>
+        {/* Mascot */}
+        <img
+          src="/xylem-mascot.png"
+          alt="Xylem mascot"
+          style={{
+            width: 140, height: 140, objectFit: "contain",
+            marginBottom: 8,
+          }}
+        />
+
         {/* Eyebrow */}
         <div style={{
           display: "inline-flex", alignItems: "center", gap: 7,

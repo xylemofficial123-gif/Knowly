@@ -617,9 +617,11 @@ Rules:
             </section>
           ) : messages.length === 0 ? (
             <section className="flex flex-col items-center pt-10 text-center animate-in">
-              <div className="w-20 h-20 bg-accent-soft rounded-[2.5rem] flex items-center justify-center text-3xl mb-10 shadow-inner">
-                🌱
-              </div>
+              <img
+                src="/xylem-mascot.png"
+                alt=""
+                className="w-32 h-32 object-contain mb-6"
+              />
               <h1 className="text-6xl font-black text-foreground mb-6 tracking-tight">
                 Ask Xylem anything
               </h1>

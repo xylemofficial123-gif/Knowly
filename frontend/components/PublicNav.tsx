@@ -28,16 +28,12 @@ export default function PublicNav() {
       padding: "18px 56px",
     }}>
       <Link href="/sign-in" style={{ textDecoration: "none" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <div style={{
-            width: 28, height: 28,
-            background: "linear-gradient(145deg, #4ade80, #16a34a)",
-            borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 15,
-            boxShadow: "0 2px 10px rgba(22,163,74,.25), 0 0 0 1px rgba(255,255,255,.6) inset",
-          }}>
-            🌱
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <img
+            src="/xylem-mascot.png"
+            alt=""
+            style={{ width: 32, height: 32, objectFit: "contain" }}
+          />
           <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: -0.5, color: "#14532d" }}>
             Xylem
           </span>
