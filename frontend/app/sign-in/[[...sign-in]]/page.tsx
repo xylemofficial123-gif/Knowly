@@ -6,9 +6,9 @@ import PublicNav from "@/components/PublicNav";
 import Link from "next/link";
 
 const PROOF = [
-  { num: "1,204", label: "Decisions indexed" },
   { num: "5",     label: "Connected sources"  },
-  { num: "<2s",   label: "Avg. response time" },
+  { num: "200+",  label: "Cross-source links" },
+  { num: "<8s",   label: "Avg. response time" },
   { num: "100%",  label: "Cited answers"      },
 ];
 
