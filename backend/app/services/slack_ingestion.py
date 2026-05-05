@@ -147,6 +147,38 @@ def get_thread_replies(channel_id: str, thread_ts: str) -> list[dict]:
 
 
 _channel_name_cache: dict = {}  # channel_id → name; populated on demand
+_user_name_cache: dict = {}  # user_id → display name; populated on demand
+
+
+def _get_user_display_name(user_id: str) -> str:
+    """Resolve a Slack user ID to a human-readable display name. Cached per
+    process. Used to attribute messages: '<Sachin> stripe is the new...'
+    instead of just the raw text. Falls back to '' if lookup fails so callers
+    can decide whether to render anonymously."""
+    if not user_id or user_id == "unknown":
+        return ""
+    if user_id in _user_name_cache:
+        return _user_name_cache[user_id]
+    try:
+        client = _get_client()
+        resp = client.users_info(user=user_id)
+        if resp.get("ok"):
+            user = resp.get("user") or {}
+            profile = user.get("profile") or {}
+            name = (
+                profile.get("display_name_normalized")
+                or profile.get("real_name_normalized")
+                or profile.get("display_name")
+                or profile.get("real_name")
+                or user.get("name")
+                or ""
+            ).strip()
+            if name:
+                _user_name_cache[user_id] = name
+                return name
+    except Exception as e:
+        logger.debug(f"User name lookup failed for {user_id}: {e}")
+    return ""
 
 
 def _get_channel_name(channel_id: str) -> str:
@@ -204,9 +236,18 @@ def format_message_for_storage(msg: dict, channel_id: str, acl: list[str] = None
     else:
         title = f"Slack message in {label}"
 
+    # Prepend the author's display name to the message body so retrieval +
+    # synthesis see who said what. Without this the LLM only gets the raw
+    # message body and can't attribute the claim.
+    author = _get_user_display_name(user)
+    if author and text:
+        attributed_text = f"<{author}>: {text}"
+    else:
+        attributed_text = text
+
     return {
         "source_id": source_id,
-        "text": text,
+        "text": attributed_text,
         "url": url,
         "acl": acl if acl else ["public"],
         "slack_user_id": user,
@@ -249,7 +290,8 @@ def ingest_message(msg: dict, channel_id: str, channel_acl: list[str] = None):
                 continue
             reply_user = reply.get("user", "unknown")
             reply_text = reply.get("text", "")
-            thread_text += f"\n<@{reply_user}>: {reply_text}"
+            reply_author = _get_user_display_name(reply_user) or reply_user
+            thread_text += f"\n<{reply_author}>: {reply_text}"
 
     chunk_and_store(
         source="slack",

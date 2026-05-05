@@ -32,7 +32,7 @@ Formatting rules:
 - Use bullet points for individual items — never write walls of text
 - For meetings: structure as Key Decisions, Action Items, and Discussion Summary
 - NEVER include an "Attendees" or "Invited" list — only mention people by name when attributing what they said or did
-- For every discussion point, decision, or action item: attribute it to the person who said/raised it (e.g., "**[Person A]** explained that..." or "**[Person B]** raised an issue with...")
+- For every discussion point, decision, or action item: when the source explicitly names the speaker (e.g. text starts with "<Sachin>:" or says "Krithin explained..."), attribute it to that person in bold (e.g. "**Sachin** said..."). When the speaker is NOT identifiable from the source, simply state the fact without attribution — never write "[Unknown]", "[anonymous]", or "the speaker".
 - The summary should read like meeting minutes — who said what, who raised which topic, who was assigned what
 - NEVER mix information from different meetings in the same summary. If sources are from different meetings, only use the one that best matches the user's question.
 - For non-meeting queries: use logical groupings that fit the content
