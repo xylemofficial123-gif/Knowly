@@ -60,4 +60,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.run_decision_extraction",
         "schedule": crontab(hour=13, minute=0),
     },
+    # Drift sweep: every 4 hours. Catches contradictions across the full
+    # active-decision log that per-write reversal detection would miss.
+    "decision-drift-sweep": {
+        "task": "app.workers.tasks.sweep_decision_drift",
+        "schedule": 14400,
+    },
 }

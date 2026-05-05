@@ -460,3 +460,146 @@ def reingest_clickup_task(self, task_id: str, space_id: str = "", list_id: str =
     except Exception as e:
         logger.error(f"ClickUp task re-ingestion failed: {e}")
         raise self.retry(exc=e, countdown=120)
+
+
+@celery_app.task(bind=True, max_retries=2)
+def sweep_decision_drift(self, similarity_threshold: float = 0.78, max_pairs_to_check: int = 80):
+    """Walk active decisions, flag pairs that are similar AND contradictory.
+
+    Per-write reversal detection (in decision_extractor.check_decision_reversal)
+    only catches contradictions when a NEW decision arrives. This sweep catches
+    cases where two decisions drifted apart over time, neither explicitly
+    reversing the other — e.g. one says "weekly oncall", another says
+    "biweekly oncall", extracted weeks apart.
+
+    Two-stage filter to keep LLM cost bounded:
+      1. Embed each active decision's text. Pairwise cosine; keep pairs above
+         `similarity_threshold` (default 0.78).
+      2. For each high-similarity pair, ask the LLM "do these contradict each
+         other?". Only "yes" answers become DecisionDriftAlert rows.
+
+    `max_pairs_to_check` caps the LLM cost for any one sweep. Defaults to 80
+    high-similarity pairs which is plenty for any active log under ~100
+    decisions and burns about 80 LLM calls.
+    """
+    from app.models import DecisionRecord, DecisionDriftAlert
+    from app.services.embeddings import embed_text
+    from app.services.llm import generate
+    import math
+    from sqlalchemy import or_
+
+    def _cosine(a: list[float], b: list[float]) -> float:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(y * y for y in b))
+        return dot / (na * nb) if na and nb else 0.0
+
+    db = SessionLocal()
+    try:
+        decisions = (
+            db.query(DecisionRecord)
+            .filter(DecisionRecord.status == "active")
+            .all()
+        )
+        if len(decisions) < 2:
+            logger.info("Drift sweep: <2 active decisions, nothing to compare")
+            return {"checked_pairs": 0, "alerts_created": 0}
+
+        logger.info(f"Drift sweep: embedding {len(decisions)} active decisions")
+        embeddings: dict[str, list[float]] = {}
+        for d in decisions:
+            text = (d.decision or "") + ". " + (d.rationale or "")
+            try:
+                embeddings[str(d.id)] = embed_text(text)
+            except Exception as e:
+                logger.warning(f"Embedding failed for decision {d.id}: {e}")
+
+        # Pairwise — only retain pairs above threshold and not already alerted.
+        pairs = []
+        ids = list(embeddings.keys())
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                sim = _cosine(embeddings[ids[i]], embeddings[ids[j]])
+                if sim >= similarity_threshold:
+                    pairs.append((ids[i], ids[j], sim))
+        pairs.sort(key=lambda x: x[2], reverse=True)
+        pairs = pairs[:max_pairs_to_check]
+
+        logger.info(f"Drift sweep: {len(pairs)} pairs above similarity {similarity_threshold}")
+
+        # Skip pairs we already have an alert for (in either order).
+        decision_by_id = {str(d.id): d for d in decisions}
+        existing_alerts = db.query(DecisionDriftAlert).all()
+        seen_pairs = {
+            tuple(sorted([str(a.decision_a_id), str(a.decision_b_id)]))
+            for a in existing_alerts
+        }
+
+        alerts_created = 0
+        for a_id, b_id, sim in pairs:
+            key = tuple(sorted([a_id, b_id]))
+            if key in seen_pairs:
+                continue
+
+            d_a = decision_by_id[a_id]
+            d_b = decision_by_id[b_id]
+            prompt = (
+                "You compare company decisions for contradiction or drift. "
+                "Two decisions are 'contradictory' when they specify different "
+                "answers to the same question (e.g. 'weekly oncall' vs 'biweekly "
+                "oncall'). Two decisions on different topics are NOT "
+                "contradictory even if they share words.\n\n"
+                f"Decision A: {d_a.decision}\nRationale: {d_a.rationale or 'n/a'}\n\n"
+                f"Decision B: {d_b.decision}\nRationale: {d_b.rationale or 'n/a'}\n\n"
+                "Reply with strict JSON only: "
+                '{"contradicts": "yes" | "no", "reason": "<one short sentence>"}'
+            )
+            try:
+                raw = generate(prompt, max_tokens=200)
+            except Exception as e:
+                logger.warning(f"LLM contradiction check failed for {a_id}/{b_id}: {e}")
+                continue
+
+            verdict = "unknown"
+            reason = ""
+            try:
+                import json, re
+                m = re.search(r"\{.*\}", raw, re.S)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    verdict = (parsed.get("contradicts") or "unknown").lower().strip()
+                    reason = (parsed.get("reason") or "").strip()[:500]
+            except Exception:
+                pass
+
+            if verdict != "yes":
+                continue
+
+            try:
+                alert = DecisionDriftAlert(
+                    decision_a_id=d_a.id,
+                    decision_b_id=d_b.id,
+                    similarity=round(float(sim), 4),
+                    contradicts="yes",
+                    reasoning=reason or None,
+                    status="open",
+                )
+                db.add(alert)
+                db.commit()
+                alerts_created += 1
+                seen_pairs.add(key)
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Failed to insert drift alert for {a_id}/{b_id}: {e}")
+
+        logger.info(
+            f"Drift sweep complete: pairs={len(pairs)} alerts_created={alerts_created}"
+        )
+        return {"checked_pairs": len(pairs), "alerts_created": alerts_created}
+    except Exception as e:
+        logger.error(f"sweep_decision_drift failed: {e}")
+        raise self.retry(exc=e, countdown=300)
+    finally:
+        db.close()

@@ -1,9 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+interface DriftAlert {
+  id: string;
+  similarity: number;
+  contradicts: string;
+  reasoning: string;
+  status: string;
+  detected_at: string;
+  decision_a: { id: string; decision: string; rationale: string; decided_at: string } | null;
+  decision_b: { id: string; decision: string; rationale: string; decided_at: string } | null;
+}
 
 interface Decision {
   id: string;
@@ -42,6 +53,7 @@ function formatDate(iso: string) {
 
 export default function DecisionsPage() {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
   const [data, setData] = useState<DecisionList | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "superseded">("all");
@@ -50,6 +62,10 @@ export default function DecisionsPage() {
   const [extractMsg, setExtractMsg] = useState("");
   const [expandedChain, setExpandedChain] = useState<string | null>(null);
   const [chains, setChains] = useState<Record<string, ChainEntry[]>>({});
+  const [driftAlerts, setDriftAlerts] = useState<DriftAlert[]>([]);
+  const [driftRunning, setDriftRunning] = useState(false);
+  const [driftMsg, setDriftMsg] = useState("");
+  const [driftExpanded, setDriftExpanded] = useState(false);
 
   const fetchDecisions = (status = filter) => {
     setLoading(true);
@@ -61,6 +77,56 @@ export default function DecisionsPage() {
   };
 
   useEffect(() => { fetchDecisions(filter); }, [filter, userEmail]);
+
+  const fetchDriftAlerts = async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(`${API_URL}/api/admin/drift-sweep/alerts?status=open`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const d = await res.json();
+      setDriftAlerts(Array.isArray(d?.alerts) ? d.alerts : []);
+    } catch {}
+  };
+
+  useEffect(() => { fetchDriftAlerts(); }, []);
+
+  const runDriftSweep = async () => {
+    setDriftRunning(true);
+    setDriftMsg("");
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/admin/drift-sweep/run`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        setDriftMsg(d?.detail || "Drift sweep failed.");
+      } else {
+        setDriftMsg(`Sweep complete — ${d.alerts_created ?? 0} new alert(s), ${d.checked_pairs ?? 0} pair(s) checked.`);
+        fetchDriftAlerts();
+      }
+    } catch (e: any) {
+      setDriftMsg(e?.message || "Drift sweep failed.");
+    } finally {
+      setDriftRunning(false);
+    }
+  };
+
+  const acknowledgeDriftAlert = async (alertId: string, status: "acknowledged" | "resolved") => {
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/admin/drift-sweep/alerts/${alertId}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      fetchDriftAlerts();
+    } catch {}
+  };
 
   const triggerExtraction = async () => {
     setExtracting(true);
@@ -126,6 +192,98 @@ export default function DecisionsPage() {
             <div className="text-3xl font-black text-gray-400 mb-1">{data?.total_superseded ?? "—"}</div>
             <div className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Reversed / superseded</div>
           </div>
+        </div>
+
+        {/* Drift alerts banner */}
+        <div className={`mb-8 rounded-2xl border p-5 ${driftAlerts.length > 0 ? "bg-amber-50 border-amber-200" : "bg-blue-50 border-blue-100"}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">{driftAlerts.length > 0 ? "⚠️" : "🛡️"}</span>
+                <p className={`text-sm font-bold ${driftAlerts.length > 0 ? "text-amber-900" : "text-blue-900"}`}>
+                  {driftAlerts.length > 0
+                    ? `${driftAlerts.length} potential decision drift${driftAlerts.length > 1 ? "s" : ""} detected`
+                    : "No active drift detected"}
+                </p>
+              </div>
+              <p className={`text-xs leading-relaxed ${driftAlerts.length > 0 ? "text-amber-700" : "text-blue-700"}`}>
+                {driftAlerts.length > 0
+                  ? "Pairs of decisions that may contradict each other. Review and resolve to keep institutional memory consistent."
+                  : "Periodic sweep checks every 4 hours. Manual trigger runs the same logic on demand."}
+              </p>
+              {driftMsg && (
+                <p className="text-[11px] mt-2 font-medium text-gray-600">{driftMsg}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 shrink-0">
+              <button
+                onClick={runDriftSweep}
+                disabled={driftRunning}
+                className="px-4 py-2 bg-foreground text-white rounded-xl text-[11px] font-bold hover:bg-gray-800 transition-all disabled:opacity-40 whitespace-nowrap"
+              >
+                {driftRunning ? "Sweeping…" : "Run sweep now"}
+              </button>
+              {driftAlerts.length > 0 && (
+                <button
+                  onClick={() => setDriftExpanded((v) => !v)}
+                  className="px-4 py-2 bg-white border border-amber-200 text-amber-800 rounded-xl text-[11px] font-bold hover:bg-amber-100 transition-all whitespace-nowrap"
+                >
+                  {driftExpanded ? "Hide" : "Review"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {driftExpanded && driftAlerts.length > 0 && (
+            <div className="mt-5 space-y-3">
+              {driftAlerts.map((a) => (
+                <div key={a.id} className="bg-white rounded-xl border border-amber-100 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                      {Math.round((a.similarity || 0) * 100)}% similar
+                    </span>
+                    <span className="text-[10px] font-bold text-gray-400">→</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
+                      LLM verdict: contradicts
+                    </span>
+                  </div>
+                  {a.reasoning && (
+                    <p className="text-xs text-gray-600 italic mb-3 leading-relaxed">{a.reasoning}</p>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+                      <p className="font-bold text-gray-700 leading-snug mb-1">{a.decision_a?.decision || "—"}</p>
+                      {a.decision_a?.rationale && (
+                        <p className="text-gray-500 text-[11px] leading-relaxed">{a.decision_a.rationale}</p>
+                      )}
+                      <p className="text-[10px] text-gray-400 mt-2">{formatDate(a.decision_a?.decided_at || "")}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+                      <p className="font-bold text-gray-700 leading-snug mb-1">{a.decision_b?.decision || "—"}</p>
+                      {a.decision_b?.rationale && (
+                        <p className="text-gray-500 text-[11px] leading-relaxed">{a.decision_b.rationale}</p>
+                      )}
+                      <p className="text-[10px] text-gray-400 mt-2">{formatDate(a.decision_b?.decided_at || "")}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      onClick={() => acknowledgeDriftAlert(a.id, "acknowledged")}
+                      className="text-[11px] font-bold text-gray-500 hover:text-gray-700 px-3 py-1 rounded-md hover:bg-gray-100"
+                    >
+                      Acknowledge
+                    </button>
+                    <button
+                      onClick={() => acknowledgeDriftAlert(a.id, "resolved")}
+                      className="text-[11px] font-bold text-green-700 hover:text-green-900 px-3 py-1 rounded-md hover:bg-green-50"
+                    >
+                      Mark resolved
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Filter tabs */}

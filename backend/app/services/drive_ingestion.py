@@ -481,9 +481,15 @@ def ingest_drive_file(file_info: dict, user_email: str = None) -> bool:
         "doc_status": doc_status,
     }
 
-    # Workspace-wide visibility policy:
-    # admin-connected Drive content is indexed as public so all members can query it.
-    acl = ["public"]
+    # Inherit Drive's actual permissions onto the chunk ACL. The same pattern
+    # Meet ingestion uses: read the file's permission list, treat "anyone" /
+    # "domain" sharing as public, otherwise use the explicit email list. Falls
+    # back to ["public"] only when permissions can't be fetched at all (rare —
+    # would mean we have read access to the file but not its permissions).
+    #
+    # Closes the gap where an admin who connected their Drive could
+    # accidentally make HR / salary / M&A folders queryable to every member.
+    acl = _get_file_permissions(service, file_id)
 
     chunk_and_store(
         source="drive",

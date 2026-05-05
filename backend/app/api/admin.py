@@ -1660,3 +1660,125 @@ def seed_demo_data(actor: str = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# ── Decision drift sweep ─────────────────────────────────────────────────────
+
+
+@router.post("/drift-sweep/run")
+def run_drift_sweep(actor: str = Depends(require_admin)):
+    """Trigger the decision-drift sweep synchronously and return the result.
+
+    Useful for demos so the presenter doesn't have to wait for the 4-hour
+    cron. Walks all active decisions, computes pairwise similarity, runs an
+    LLM contradiction check on the high-similarity pairs, stores any 'yes'
+    verdicts as DecisionDriftAlert rows.
+    """
+    try:
+        from app.workers.tasks import sweep_decision_drift
+        # Call .run(self=...) directly to execute in-process instead of
+        # queueing onto the Celery worker. Avoids the per-service env-var
+        # trap that bit us earlier.
+        result = sweep_decision_drift.run()
+        return {"status": "ok", **(result or {})}
+    except Exception as e:
+        logger.error(f"drift-sweep manual trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/drift-sweep/alerts")
+def list_drift_alerts(
+    status: str = "open",
+    limit: int = 50,
+    actor: str = Depends(require_admin),
+):
+    """List drift alerts. status ∈ {open, acknowledged, resolved, all}."""
+    from app.models import DecisionDriftAlert
+
+    db = SessionLocal()
+    try:
+        query = db.query(DecisionDriftAlert).order_by(DecisionDriftAlert.detected_at.desc())
+        if status != "all":
+            query = query.filter(DecisionDriftAlert.status == status)
+        alerts = query.limit(limit).all()
+
+        # Hydrate decisions for display
+        decision_ids: set = set()
+        for a in alerts:
+            decision_ids.add(a.decision_a_id)
+            decision_ids.add(a.decision_b_id)
+        decisions = (
+            db.query(DecisionRecord)
+            .filter(DecisionRecord.id.in_(list(decision_ids)))
+            .all() if decision_ids else []
+        )
+        d_by_id = {str(d.id): d for d in decisions}
+
+        def _decision_brief(d):
+            if not d:
+                return None
+            return {
+                "id": str(d.id),
+                "decision": d.decision or "",
+                "rationale": d.rationale or "",
+                "decided_at": d.decided_at.isoformat() if d.decided_at else "",
+                "status": d.status or "active",
+            }
+
+        return {
+            "alerts": [
+                {
+                    "id": str(a.id),
+                    "similarity": a.similarity,
+                    "contradicts": a.contradicts,
+                    "reasoning": a.reasoning or "",
+                    "status": a.status or "open",
+                    "detected_at": a.detected_at.isoformat() if a.detected_at else "",
+                    "decision_a": _decision_brief(d_by_id.get(str(a.decision_a_id))),
+                    "decision_b": _decision_brief(d_by_id.get(str(a.decision_b_id))),
+                }
+                for a in alerts
+            ]
+        }
+    finally:
+        db.close()
+
+
+class DriftAlertStatusUpdate(BaseModel):
+    status: str  # acknowledged | resolved | open
+
+
+@router.patch("/drift-sweep/alerts/{alert_id}")
+def update_drift_alert(
+    alert_id: str,
+    body: DriftAlertStatusUpdate,
+    actor: str = Depends(require_admin),
+):
+    """Mark a drift alert as acknowledged or resolved."""
+    from app.models import DecisionDriftAlert
+
+    if body.status not in ("open", "acknowledged", "resolved"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    db = SessionLocal()
+    try:
+        alert = db.query(DecisionDriftAlert).filter(DecisionDriftAlert.id == alert_id).first()
+        if not alert:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        alert.status = body.status
+        if body.status == "resolved":
+            alert.resolved_at = datetime.datetime.utcnow()
+            alert.resolved_by = actor
+        else:
+            alert.resolved_at = None
+            alert.resolved_by = None
+        db.commit()
+        return {"status": "ok", "alert_status": alert.status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"update_drift_alert failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

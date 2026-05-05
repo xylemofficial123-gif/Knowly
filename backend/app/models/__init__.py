@@ -246,3 +246,29 @@ class GuardianAlert(Base):
     alert_status = Column(String, default="pending")
     matches_json = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class DecisionDriftAlert(Base):
+    """A potential drift / contradiction detected between two active decisions.
+
+    Populated by the periodic sweep task. The pair are flagged when their
+    embeddings are similar enough that they're plausibly about the same topic
+    AND the LLM's contradiction check returns yes. Each alert links the two
+    decisions, the similarity score, the LLM's reasoning, and a status the
+    admin can change as they review.
+    """
+    __tablename__ = "decision_drift_alerts"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    decision_a_id = Column(UUID(as_uuid=True), ForeignKey("decision_records.id"), nullable=False)
+    decision_b_id = Column(UUID(as_uuid=True), ForeignKey("decision_records.id"), nullable=False)
+    similarity = Column(Float, default=0.0)
+    contradicts = Column(String, default="unknown")  # "yes" | "no" | "unknown"
+    reasoning = Column(Text, nullable=True)
+    status = Column(String, default="open")  # open | acknowledged | resolved
+    detected_at = Column(DateTime, default=datetime.datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("decision_a_id", "decision_b_id", name="uq_drift_pair"),
+    )
