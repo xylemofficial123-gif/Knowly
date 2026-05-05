@@ -6,7 +6,7 @@ import OracleResponse from "@/components/OracleResponse";
 import CitationCard from "@/components/CitationCard";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const QUICK_ONBOARDING_PROJECTS = ["AI labs", "Sprout", "Orchard"] as const;
+const FALLBACK_PROJECTS = ["AI Labs", "Sprout", "Orchard"] as const;
 
 type ProjectCardState = {
   answer: string;
@@ -79,9 +79,13 @@ export default function Home() {
     loading: false,
     error: "",
   });
+  // Projects shown on Quick Onboarding are pulled from /api/groups so admins
+  // can manage them via the Groups tab. Falls back to a small hardcoded list
+  // only for unauthenticated SSR / when the fetch fails.
+  const [projects, setProjects] = useState<string[]>([...FALLBACK_PROJECTS]);
   const [projectTaskState, setProjectTaskState] = useState<Record<string, Record<string, boolean>>>(() =>
     Object.fromEntries(
-      QUICK_ONBOARDING_PROJECTS.map((project) => [
+      FALLBACK_PROJECTS.map((project) => [
         project,
         Object.fromEntries(ONBOARDING_TASKS.map((task) => [task, false])),
       ])
@@ -90,7 +94,7 @@ export default function Home() {
   const [projectCards, setProjectCards] = useState<Record<string, ProjectCardState>>(
     () =>
       Object.fromEntries(
-        QUICK_ONBOARDING_PROJECTS.map((project) => [
+        FALLBACK_PROJECTS.map((project) => [
           project,
           { answer: "", citations: [], query: "", loading: false, error: "" },
         ])
@@ -139,6 +143,45 @@ export default function Home() {
         const data = await res.json();
         const count = Array.isArray(data?.decisions) ? data.decisions.length : null;
         if (!cancelled && count !== null) setDecisionCount(count);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [getToken]);
+
+  // Pull project list from /api/groups so admins can manage what shows
+  // up on Quick Onboarding by creating/deleting groups in the admin panel.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetch(`${API_URL}/api/groups`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const names: string[] = Array.isArray(data?.groups)
+          ? data.groups.map((g: any) => g?.name).filter(Boolean)
+          : [];
+        if (cancelled || names.length === 0) return;
+        setProjects(names);
+        setProjectCards((prev) => {
+          const next: Record<string, ProjectCardState> = { ...prev };
+          for (const n of names) {
+            if (!next[n]) next[n] = { answer: "", citations: [], query: "", loading: false, error: "" };
+          }
+          return next;
+        });
+        setProjectTaskState((prev) => {
+          const next: Record<string, Record<string, boolean>> = { ...prev };
+          for (const n of names) {
+            if (!next[n]) {
+              next[n] = Object.fromEntries(ONBOARDING_TASKS.map((task) => [task, false]));
+            }
+          }
+          return next;
+        });
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -353,14 +396,14 @@ Rules:
           {quickOnboardingMode ? (
             <section className="space-y-6 animate-in">
               <div className="text-left">
-                <h1 className="text-4xl font-black text-foreground tracking-tight mb-3">Quick onboarding</h1>
+                <h1 className="text-4xl font-black text-foreground tracking-tight mb-3">New joiner</h1>
                 <p className="text-gray-500 text-sm font-medium">
-                  Know your team / company / project with focused project briefings.
+                  Pick a project for an instant briefing — decisions, owners, and rationale.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                {QUICK_ONBOARDING_PROJECTS.map((project) => (
+                {projects.map((project) => (
                   <button
                     key={project}
                     onClick={() => openProjectCard(project)}

@@ -132,10 +132,10 @@ export default function Sidebar() {
               className="w-full text-left px-4 py-4 rounded-2xl border border-green-100/80 bg-green-50/70 hover:bg-green-50 transition-all group"
             >
               <p className="text-[10px] font-bold text-green-700 uppercase tracking-widest mb-2">
-                Quick onboarding
+                New joiner
               </p>
               <p className="text-[13px] font-semibold text-green-900 leading-snug group-hover:text-green-800">
-                Know your team / company / project
+                Project briefings · key decisions · role setup
               </p>
             </button>
           </div>

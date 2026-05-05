@@ -1417,18 +1417,201 @@ def seed_demo_data(actor: str = Depends(require_admin)):
         },
     ]
 
+    # Project-scoped seeds. These create the appearance of three internal
+    # projects (AI Labs / Sprout / Orchard), each with its own decisions
+    # visible only to that project's group. Drives the Quick Onboarding UX
+    # which renders one card per group and surfaces decisions when clicked.
+    demo_groups_spec = [
+        {"name": "AI Labs", "description": "AI/ML platform research — reasoning agents and embeddings"},
+        {"name": "Sprout", "description": "Mobile-first consumer app — beta cohort"},
+        {"name": "Orchard", "description": "B2B revenue, GTM strategy, and contract structure"},
+    ]
+
+    project_seeds = [
+        # AI Labs
+        {
+            "slug": "claude-for-reasoning-agents",
+            "group": "AI Labs",
+            "decision": "Use Claude over GPT-4 for reasoning agents in AI Labs",
+            "rationale": "Stronger tool-use accuracy and longer context window for multi-step reasoning",
+            "options": ["GPT-4o", "Gemini 2.5 Pro"],
+            "decided_at": _dt.datetime(2026, 4, 18, 14, 30, 0),
+            "title": "AI Labs — Claude as primary reasoning model",
+            "text": (
+                "AI Labs is standardising on Claude as the default reasoning model for our agents. "
+                "GPT-4o was the runner-up but lost on tool-use accuracy in our internal eval — Claude "
+                "gets multi-step tool sequences right ~12% more often. Gemini 2.5 Pro was rejected on "
+                "context-window stability under heavy tool fan-out. We'll keep Gemini in the free fallback "
+                "tier for production, but R&D defaults to Claude. Decided 18/04/2026."
+            ),
+        },
+        {
+            "slug": "rag-over-finetuning",
+            "group": "AI Labs",
+            "decision": "Use RAG over fine-tuning for v1 of all knowledge agents",
+            "rationale": "Avoid coupling product to one model vendor; fresh data without re-training",
+            "options": ["Fine-tune Llama 3", "Hybrid"],
+            "decided_at": _dt.datetime(2026, 3, 22, 11, 0, 0),
+            "title": "AI Labs — RAG-first architecture",
+            "text": (
+                "Decision: All AI Labs agents will use retrieval-augmented generation in v1, not "
+                "fine-tuned models. Fine-tuning Llama 3 was considered but rejected — it would lock the "
+                "product to one model vendor and require re-training every time the underlying knowledge "
+                "base changes. RAG keeps the model swappable and the data fresh. We may revisit fine-tuning "
+                "for narrow tasks (entity extraction) once volume justifies it. Decided 22/03/2026."
+            ),
+        },
+        {
+            "slug": "ailabs-eval-harness",
+            "group": "AI Labs",
+            "decision": "Build an internal eval harness before shipping any agent to production",
+            "rationale": "Vibes-based testing failed in Q1 — we shipped a regression that took 3 days to catch",
+            "options": ["Manual testing", "External eval service"],
+            "decided_at": _dt.datetime(2026, 5, 1, 9, 15, 0),
+            "title": "AI Labs — Mandatory eval harness",
+            "text": (
+                "Effective immediately, no AI Labs agent ships to prod without passing an internal eval "
+                "harness covering retrieval recall, citation accuracy, and refusal correctness. The Q1 "
+                "regression — where an agent silently started fabricating decisions — wasn't caught for "
+                "three days because we relied on vibes. External services like Promptfoo were considered "
+                "but rejected for data-sovereignty reasons. We'll build it in-house. Owner: AI Labs eng lead."
+            ),
+        },
+        # Sprout
+        {
+            "slug": "sprout-mobile-first",
+            "group": "Sprout",
+            "decision": "Build Sprout as mobile-first for v1, defer web to v2",
+            "rationale": "Target audience checks the app 8+ times daily on mobile; web is rare",
+            "options": ["Web-first", "Desktop app"],
+            "decided_at": _dt.datetime(2026, 2, 28, 16, 45, 0),
+            "title": "Sprout — Mobile-first product strategy",
+            "text": (
+                "Sprout will ship mobile-first. User research shows our target cohort (consumers ages "
+                "18–34) opens the app 8–12 times per day on mobile and almost never on desktop. Web was "
+                "considered for v1 but the resource cost of dual-platform was 2.5x and the engagement "
+                "lift was estimated at <10%. Web ships in v2 once we hit 10K MAU. Decided 28/02/2026."
+            ),
+        },
+        {
+            "slug": "sprout-react-native",
+            "group": "Sprout",
+            "decision": "Use React Native instead of Flutter for Sprout's mobile app",
+            "rationale": "Engineering team already has 4 years of JS/RN experience; library ecosystem is bigger",
+            "options": ["Flutter", "Native iOS + Android (separate codebases)"],
+            "decided_at": _dt.datetime(2026, 3, 8, 13, 0, 0),
+            "title": "Sprout — React Native for v1",
+            "text": (
+                "Sprout's mobile codebase will be React Native. Flutter was a serious contender — its "
+                "render performance is genuinely better — but our team has 4+ years of JS/RN experience "
+                "and zero Dart. Going Flutter would have cost a quarter of ramp-up. Native iOS + Android "
+                "in parallel was rejected on cost. We accept the marginal performance hit. Decided 08/03/2026."
+            ),
+        },
+        {
+            "slug": "sprout-beta-50-users",
+            "group": "Sprout",
+            "decision": "Closed beta is 50 hand-picked waitlist users; no public launch yet",
+            "rationale": "Need tight feedback loop before scaling; risk of negative reviews from buggy v1",
+            "options": ["100-user open beta", "Soft launch in single market"],
+            "decided_at": _dt.datetime(2026, 4, 14, 18, 0, 0),
+            "title": "Sprout — 50-user closed beta",
+            "text": (
+                "Sprout's beta cohort is 50 users hand-picked from the waitlist. We considered a 100-user "
+                "open beta but rejected it — at 100 the feedback loop becomes too noisy to act on, and "
+                "the risk of negative public reviews on a buggy v1 hurts long-term acquisition. Soft launch "
+                "in a single market was also rejected — geography isn't the variable we want to control "
+                "this round; usage intent is. Decided 14/04/2026."
+            ),
+        },
+        # Orchard
+        {
+            "slug": "orchard-b2b-first",
+            "group": "Orchard",
+            "decision": "Orchard goes B2B-first; consumer is post-Series A",
+            "rationale": "Higher LTV, shorter sales cycles via existing operator network, predictable revenue",
+            "options": ["Consumer-first", "Marketplace"],
+            "decided_at": _dt.datetime(2026, 1, 22, 10, 30, 0),
+            "title": "Orchard — B2B-first GTM",
+            "text": (
+                "Orchard's go-to-market is B2B-first. Consumer was the alternative path but our existing "
+                "operator network gives us a 10x faster B2B sales cycle, and the LTV math is dramatically "
+                "better — average B2B deal is ~$24K ARR vs an estimated $90 LTV for consumer. We revisit "
+                "consumer post-Series A when we have the cash to fund a real CAC budget. Decided 22/01/2026."
+            ),
+        },
+        {
+            "slug": "orchard-annual-only",
+            "group": "Orchard",
+            "decision": "Orchard contracts are annual only; no monthly billing",
+            "rationale": "Predictable ARR; reduces churn-driven instability for early growth team",
+            "options": ["Monthly billing", "Quarterly billing"],
+            "decided_at": _dt.datetime(2026, 2, 11, 12, 0, 0),
+            "title": "Orchard — Annual-only contracts",
+            "text": (
+                "Orchard sells annual contracts only. Monthly billing was considered for friction "
+                "reduction but rejected — at our stage, predictable ARR matters more than top-of-funnel "
+                "conversion rate. Monthly customers churn ~3x faster than annual, which would force us "
+                "to over-invest in retention infrastructure we don't have yet. Quarterly was a compromise "
+                "that wins neither argument. Decided 11/02/2026."
+            ),
+        },
+        {
+            "slug": "orchard-self-serve-smb",
+            "group": "Orchard",
+            "decision": "Self-serve trial for the SMB segment; sales-led for mid-market and up",
+            "rationale": "Capture the long tail without sales overhead; protect AE bandwidth for higher-ACV deals",
+            "options": ["Sales-led across all segments", "Self-serve across all segments"],
+            "decided_at": _dt.datetime(2026, 4, 5, 15, 30, 0),
+            "title": "Orchard — Hybrid sales motion",
+            "text": (
+                "Orchard's sales motion is split: SMB (<50 employees) self-serves with a 14-day trial; "
+                "mid-market and enterprise are sales-led with named AEs. Pure sales-led was rejected — "
+                "we'd miss the long tail and our AE team isn't big enough to cover SMB profitably. Pure "
+                "self-serve was rejected — enterprise procurement requires human relationships at our "
+                "ACV. The hybrid lets us capture both ends. Decided 05/04/2026."
+            ),
+        },
+    ]
+
     db = SessionLocal()
     created = []
     upserted = []
     try:
-        for seed in seeds:
+        # Ensure demo groups exist (idempotent on name).
+        from app.models import Group
+        group_id_by_name: dict[str, str] = {}
+        for g in demo_groups_spec:
+            row = db.query(Group).filter(Group.name == g["name"]).first()
+            if row:
+                if g["description"] and not row.description:
+                    row.description = g["description"]
+            else:
+                row = Group(
+                    name=g["name"],
+                    description=g["description"],
+                    created_by_email=actor,
+                )
+                db.add(row)
+                db.flush()
+            group_id_by_name[g["name"]] = str(row.id)
+        db.commit()
+
+        all_seeds = seeds + project_seeds
+        for seed in all_seeds:
             source_id = f"demo:{seed['slug']}"
+            project_group = seed.get("group")
+            if project_group and project_group in group_id_by_name:
+                seed_acl = [f"group:{group_id_by_name[project_group]}"]
+            else:
+                seed_acl = ["public"]
+
             chunk_and_store(
                 source="demo",
                 source_id=source_id,
                 text=seed["text"],
                 url=f"https://demo.xylem.ai/decisions/{seed['slug']}",
-                acl=["public"],
+                acl=seed_acl,
                 title=seed["title"],
                 doc_status="finalized",
             )
@@ -1443,7 +1626,7 @@ def seed_demo_data(actor: str = Depends(require_admin)):
                 existing.rationale = seed["rationale"]
                 existing.options_considered = seed["options"]
                 existing.decided_at = seed["decided_at"]
-                existing.acl = ["public"]
+                existing.acl = seed_acl
                 existing.status = "active"
                 upserted.append(seed["slug"])
             else:
@@ -1454,7 +1637,7 @@ def seed_demo_data(actor: str = Depends(require_admin)):
                     status="active",
                     source_chunk_ids=[source_id],
                     participants=[],
-                    acl=["public"],
+                    acl=seed_acl,
                     decided_at=seed["decided_at"],
                 )
                 db.add(rec)
@@ -1468,7 +1651,8 @@ def seed_demo_data(actor: str = Depends(require_admin)):
             "status": "ok",
             "created": created,
             "upserted": upserted,
-            "total_seeds": len(seeds),
+            "total_seeds": len(all_seeds),
+            "demo_groups": list(group_id_by_name.keys()),
         }
     except Exception as e:
         db.rollback()
