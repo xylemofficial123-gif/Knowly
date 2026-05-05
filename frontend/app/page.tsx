@@ -124,12 +124,25 @@ export default function Home() {
     sessionStorage.setItem("xylem_chat_session", sessionId);
   }, [sessionId, hydrated]);
 
-  // Stats could come from an API endpoint, but keeping it simple for now
-  const stats = {
-    indexedCount: "1,204",
-    verifiedOnly: false,
-    allTime: true
-  };
+  const [decisionCount, setDecisionCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await fetch(`${API_URL}/api/admin/decisions?status=all&limit=200`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const count = Array.isArray(data?.decisions) ? data.decisions.length : null;
+        if (!cancelled && count !== null) setDecisionCount(count);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [getToken]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -325,19 +338,12 @@ Rules:
       <header className="h-20 border-b border-gray-100 bg-white/80 backdrop-blur-md px-10 flex items-center justify-between sticky top-0 z-40 shrink-0">
         <h2 className="text-xl font-bold tracking-tight text-foreground">Query memory</h2>
         <div className="flex items-center gap-3">
-          <div className="bg-accent-soft px-4 py-2.5 rounded-2xl flex items-center gap-2 border border-accent/5">
-            <span className="text-accent font-bold text-xs">{stats.indexedCount}</span>
-            <span className="text-accent/60 text-[10px] font-bold uppercase tracking-widest translate-y-[0.5px]">decisions indexed</span>
-          </div>
-          <button className="h-10 px-4 rounded-xl border border-gray-100 text-[11px] font-bold text-gray-400 flex items-center gap-2 hover:bg-gray-50 transition-all">
-            <span></span> Verified only
-          </button>
-          <button className="h-10 px-4 rounded-xl border border-gray-100 text-[11px] font-bold text-gray-400 flex items-center gap-2 hover:bg-gray-50 transition-all">
-            <span>📅</span> All time
-          </button>
-          <button className="h-10 px-6 rounded-xl bg-foreground text-white text-[11px] font-bold flex items-center gap-2 shadow-lg shadow-gray-200 hover:bg-gray-800 transition-all">
-            <span>🎚️</span> Filters
-          </button>
+          {decisionCount !== null && (
+            <div className="bg-accent-soft px-4 py-2.5 rounded-2xl flex items-center gap-2 border border-accent/5">
+              <span className="text-accent font-bold text-xs">{decisionCount}</span>
+              <span className="text-accent/60 text-[10px] font-bold uppercase tracking-widest translate-y-[0.5px]">decisions indexed</span>
+            </div>
+          )}
         </div>
       </header>
 
@@ -657,8 +663,8 @@ Rules:
           <div className="flex items-center gap-6 px-8 pb-4 pt-2 border-t border-gray-50/50 mt-1">
             {[
               { name: "Slack", color: "bg-teal-500" },
-              { name: "Notion", color: "bg-gray-400" },
               { name: "Drive", color: "bg-orange-400" },
+              { name: "ClickUp", color: "bg-purple-400" },
               { name: "Transcripts", color: "bg-green-400" }
             ].map((s) => (
               <div key={s.name} className="flex items-center gap-2 group cursor-pointer">
