@@ -267,14 +267,29 @@ def get_decisions(
     The decision log is reachable from the user-facing sidebar, so ACL-filter
     by `user_email` when provided. Admins (per acl.user_can_see_chunk) bypass
     the filter automatically.
+
+    Each decision is enriched with a derived `visibility` tag and a `groups`
+    list (id+name) so the UI can show which team(s) a decision belongs to.
     """
     from app.core.acl import user_can_see_chunk, get_user_role
+    from app.models import Group
+
+    def _classify(acl: list) -> tuple[str, list[str]]:
+        """Return (visibility_label, group_uuids) from a chunk-style ACL list.
+
+        visibility ∈ {"public", "group", "private"}.  group_uuids contains
+        every "group:<uuid>" entry so the caller can look up names.
+        """
+        if not acl or "public" in acl:
+            return "public", []
+        gids = [e[len("group:"):] for e in acl if isinstance(e, str) and e.startswith("group:")]
+        if gids:
+            return "group", gids
+        return "private", []
 
     db = SessionLocal()
     try:
         actor_role = get_user_role(actor_email)
-        # Default behavior: filter to the signed-in user's visibility.
-        # Optional override: admins can inspect another user's visibility.
         effective_user = actor_email
         if user_email and user_email.lower() != actor_email.lower():
             if actor_role != "admin":
@@ -285,25 +300,48 @@ def get_decisions(
         if status != "all":
             query = query.filter(DecisionRecord.status == status)
         decisions = query.limit(limit * 2).all()
-
         decisions = [d for d in decisions if user_can_see_chunk(effective_user, list(d.acl or []))]
         decisions = decisions[:limit]
 
+        # Resolve every group_uuid mentioned across the visible decisions in
+        # one query so we can attach human-readable names to each card.
+        all_group_ids: set[str] = set()
+        derived: dict[str, tuple[str, list[str]]] = {}
+        for d in decisions:
+            visibility, gids = _classify(list(d.acl or []))
+            derived[str(d.id)] = (visibility, gids)
+            all_group_ids.update(gids)
+
+        group_name_by_id: dict[str, str] = {}
+        if all_group_ids:
+            try:
+                rows = db.query(Group).filter(Group.id.in_(list(all_group_ids))).all()
+                group_name_by_id = {str(g.id): g.name for g in rows}
+            except Exception as e:
+                logger.warning(f"Group name lookup failed in /decisions: {e}")
+
+        items = []
+        for d in decisions:
+            visibility, gids = derived[str(d.id)]
+            items.append({
+                "id": str(d.id),
+                "decision": d.decision or "",
+                "rationale": d.rationale or "",
+                "status": d.status or "active",
+                "decided_at": d.decided_at.isoformat() if d.decided_at else "",
+                "created_at": d.created_at.isoformat() if d.created_at else "",
+                "superseded_by": str(d.superseded_by) if d.superseded_by else None,
+                "superseded_at": d.superseded_at.isoformat() if d.superseded_at else None,
+                "reversal_reason": d.reversal_reason or None,
+                "visibility": visibility,
+                "groups": [
+                    {"id": gid, "name": group_name_by_id.get(gid, "Unknown group")}
+                    for gid in gids
+                ],
+            })
+
         return {
-            "items": [
-                {
-                    "id": str(d.id),
-                    "decision": d.decision or "",
-                    "rationale": d.rationale or "",
-                    "status": d.status or "active",
-                    "decided_at": d.decided_at.isoformat() if d.decided_at else "",
-                    "created_at": d.created_at.isoformat() if d.created_at else "",
-                    "superseded_by": str(d.superseded_by) if d.superseded_by else None,
-                    "superseded_at": d.superseded_at.isoformat() if d.superseded_at else None,
-                    "reversal_reason": d.reversal_reason or None,
-                }
-                for d in decisions
-            ],
+            "items": items,
             "total_active": db.query(DecisionRecord).filter(DecisionRecord.status == "active").count(),
             "total_superseded": db.query(DecisionRecord).filter(DecisionRecord.status == "superseded").count(),
         }

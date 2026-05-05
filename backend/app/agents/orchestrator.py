@@ -39,9 +39,16 @@ def _select_agent(context: AgentContext, plan: dict):
     query_type = plan.get("query_type", "factual")
     strategy = plan.get("search_strategy", "single_search")
 
-    # Onboarding queries → Onboarding Agent (check first, it has specialized formatting)
+    # Onboarding queries → Research Agent.
+    # The dedicated OnboardingAgent's structured-format prompt currently
+    # over-hallucinates citation attributions on contradictory data
+    # (it can deny minority sources while still citing them). Research's
+    # synthesis prompt is more reliable, so we route onboarding queries
+    # there until the OnboardingAgent prompt is hardened. The class itself
+    # stays in the codebase so the multi-agent architecture and
+    # `can_handle` plumbing are preserved.
     if query_type == "onboarding":
-        return onboarding_agent
+        return research_agent
 
     # Complex queries or multi-search → Research Agent
     if complexity == "complex" or strategy in ("multi_search", "cross_reference"):

@@ -14,6 +14,8 @@ interface Decision {
   superseded_by: string | null;
   superseded_at: string | null;
   reversal_reason: string | null;
+  visibility?: "public" | "group" | "private";
+  groups?: { id: string; name: string }[];
 }
 
 interface DecisionList {
@@ -176,8 +178,27 @@ export default function DecisionsPage() {
                     {d.rationale && (
                       <p className="text-xs text-gray-500 leading-relaxed mb-2">{d.rationale}</p>
                     )}
-                    <div className="flex items-center gap-3 text-[11px] text-gray-400">
+                    <div className="flex items-center flex-wrap gap-2 text-[11px] text-gray-400">
                       <span>{formatDate(d.decided_at)}</span>
+                      {d.visibility === "public" && (
+                        <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold uppercase tracking-wider border border-blue-100">
+                          🌐 Public
+                        </span>
+                      )}
+                      {d.visibility === "private" && (
+                        <span className="px-2 py-0.5 rounded-full bg-gray-50 text-gray-500 text-[10px] font-bold uppercase tracking-wider border border-gray-200">
+                          🔒 Private
+                        </span>
+                      )}
+                      {(d.groups || []).map((g) => (
+                        <span
+                          key={g.id}
+                          className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold uppercase tracking-wider border border-purple-100"
+                          title={`Visible to members of ${g.name}`}
+                        >
+                          👥 {g.name}
+                        </span>
+                      ))}
                       {d.superseded_at && (
                         <span className="text-red-400">Reversed {formatDate(d.superseded_at)}</span>
                       )}
