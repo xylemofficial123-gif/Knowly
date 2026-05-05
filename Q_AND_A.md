@@ -109,6 +109,22 @@
 
 ---
 
+## 🆕 Onboarding & Group Scoping
+
+**Q23a — How do I add or remove a project?**
+> Projects map to Groups in the admin panel — Ingest tab → Groups. An admin creates a Group, names it, optionally seeds members. The Group's name and ACL flow into Quick Onboarding automatically; new joiners assigned to that group see it as a project card. Removing the group removes the project. Same plumbing the rest of the ACL system uses, so there's nothing project-specific to maintain.
+
+**Q23b — A new joiner hasn't been assigned to a team yet. What do they see?**
+> A clear empty state: *"Not assigned to a project yet — ask an admin to add you to a team in the Groups tab."* They can still query the Oracle for any public knowledge, but the personalized onboarding view doesn't show fake or generic projects. Once an admin adds them via the Groups tab, the relevant project card appears next time they reload.
+
+**Q23c — A user is in three teams. Do they see them all together or separately?**
+> Quick Onboarding shows one card per team — they pick which project to dive into. Decisions and documents in the chat view are merged across all teams the user has visibility into, with team-tag chips on each decision (👥 Engineering, 👥 Sprout) so the source team is always clear. Search follows the user, not the team — Slack-style.
+
+**Q23d — As an admin, do I see every team's onboarding view?**
+> Yes — admins bypass the per-membership filter so they can preview any project's onboarding. We treat admin as the operator role; if you want a project hidden from admins, the right tool is No-Index Zones (don't ingest the source), not ACL.
+
+---
+
 ## 🚀 Future / Production
 
 **Q28 — What's missing for production?**
@@ -168,7 +184,7 @@ Read each one out loud three times before demo day. Don't read them off the page
 | Number | Meaning |
 |---|---|
 | **5** | Connected sources (Slack, Drive, Calendar, Meet, ClickUp) |
-| **24/26** | PRD requirements implemented |
+| **25/26** | PRD requirements implemented |
 | **7.7s** | Avg retrieval time (target: <30s) |
 | **100%** | Citation rate — every claim has a source |
 | **200+** | Cross-source entity links |
