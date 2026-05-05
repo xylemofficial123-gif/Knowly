@@ -1,6 +1,7 @@
 import re
 import json
 import logging
+from typing import Optional
 
 from app.core.config import settings
 from app.services.chunker import chunk_and_store
@@ -77,23 +78,57 @@ def _get_drive_service(user_email: str = None):
     return build("drive", "v3", credentials=creds)
 
 
+def _find_meet_recordings_folder_id(service) -> Optional[str]:
+    """Find the auto-created 'Meet Recordings' folder (the one Google
+    populates with transcripts and Gemini notes after every Meet).
+    Returns the first match's ID or None if the user has no such folder.
+    """
+    try:
+        resp = service.files().list(
+            q="mimeType='application/vnd.google-apps.folder' "
+              "and name='Meet Recordings' "
+              "and trashed=false",
+            fields="files(id, name)",
+            pageSize=10,
+        ).execute()
+        files = resp.get("files", [])
+        if files:
+            logger.info(f"Meet Recordings folder found: {files[0]['id']}")
+            return files[0]["id"]
+    except Exception as e:
+        logger.debug(f"Meet Recordings folder lookup failed: {e}")
+    return None
+
+
 def find_meet_transcripts(user_email: str = None) -> list[dict]:
     service = _get_drive_service(user_email)
 
-    # Find Gemini meeting notes and transcripts
-    query = (
-        "mimeType='application/vnd.google-apps.document' "
-        "and (name contains 'Notes by Gemini' or name contains 'transcript') "
-        "and trashed=false"
-    )
+    # Match Google Docs that are EITHER:
+    #   (a) named like a transcript / Gemini-notes file, OR
+    #   (b) a child of the auto-created "Meet Recordings" folder, OR
+    #   (c) a child of an admin-configured transcripts folder.
+    # The folder check rescues files whose names don't match the pattern
+    # (e.g. "<Meeting title> - Notes" without the word 'transcript' or
+    # 'Gemini'), which was happening on some Workspace tiers.
+    or_clauses = [
+        "name contains 'Notes by Gemini'",
+        "name contains 'transcript'",
+        "name contains 'Notes'",  # Loose fallback for Gemini summaries
+    ]
+
+    meet_recordings_id = _find_meet_recordings_folder_id(service)
+    if meet_recordings_id:
+        or_clauses.append(f"'{meet_recordings_id}' in parents")
 
     if settings.GOOGLE_TRANSCRIPTS_FOLDER_ID:
-        query = (
-            f"mimeType='application/vnd.google-apps.document' "
-            f"and (name contains 'Notes by Gemini' or name contains 'transcript' "
-            f"or '{settings.GOOGLE_TRANSCRIPTS_FOLDER_ID}' in parents) "
-            f"and trashed=false"
-        )
+        or_clauses.append(f"'{settings.GOOGLE_TRANSCRIPTS_FOLDER_ID}' in parents")
+
+    query = (
+        "mimeType='application/vnd.google-apps.document' "
+        f"and ({' or '.join(or_clauses)}) "
+        "and trashed=false"
+    )
+    logger.info(f"Meet transcript query: {query}")
 
     results = []
     page_token = None
