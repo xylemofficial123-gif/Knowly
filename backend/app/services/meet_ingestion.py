@@ -152,18 +152,18 @@ def find_meet_transcripts(user_email: str = None) -> list[dict]:
     return results
 
 
-def _export_doc_as_text(file_id: str) -> str:
-    service = _get_drive_service()
+def _export_doc_as_text(file_id: str, user_email: Optional[str] = None) -> str:
+    service = _get_drive_service(user_email)
     content = service.files().export(fileId=file_id, mimeType="text/plain").execute()
     if isinstance(content, bytes):
         return content.decode("utf-8")
     return str(content)
 
 
-def _extract_attendees_from_permissions(file_id: str) -> list[str]:
+def _extract_attendees_from_permissions(file_id: str, user_email: Optional[str] = None) -> list[str]:
     """Get attendees from file permissions."""
     try:
-        service = _get_drive_service()
+        service = _get_drive_service(user_email)
         resp = service.permissions().list(
             fileId=file_id,
             fields="permissions(emailAddress, displayName, role)",
@@ -343,20 +343,26 @@ def _store_action_items(
         db.close()
 
 
-def ingest_meet_transcript(file_info: dict) -> dict:
-    """Ingest a single meeting transcript with AI summary."""
+def ingest_meet_transcript(file_info: dict, user_email: Optional[str] = None) -> dict:
+    """Ingest a single meeting transcript with AI summary.
+
+    `user_email` selects which connected Google account's OAuth token to use
+    when calling Drive APIs (export doc, list permissions). Pass it through
+    when one specific account can read the file but the default credential
+    chain would reach for a different one.
+    """
     file_id = file_info["id"]
     title = file_info.get("name", f"Meeting {file_id}")
     url = file_info.get("webViewLink", f"https://docs.google.com/document/d/{file_id}")
 
     # Get transcript text
-    text = _export_doc_as_text(file_id)
+    text = _export_doc_as_text(file_id, user_email=user_email)
     if not text or len(text.strip()) < 30:
         logger.debug(f"Skipping empty transcript: {title}")
         return {}
 
     # Get attendees
-    attendees = _extract_attendees_from_permissions(file_id)
+    attendees = _extract_attendees_from_permissions(file_id, user_email=user_email)
 
     # Generate AI summary
     logger.info(f"Generating summary for: {title}")

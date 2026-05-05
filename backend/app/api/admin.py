@@ -2085,7 +2085,11 @@ def force_reingest_meet(req: ForceReingestMeetRequest, actor: str = Depends(requ
 
         # 3. Re-run the full Meet ingestion path on the file. This walks
         #    chunk_and_store + decision_extractor + ghost-doc emit.
-        result = ingest_meet_transcript(file_info)
+        #    Pass owner_email_used so internal Drive helpers (export doc,
+        #    list permissions) use the same credentials we just verified
+        #    can read the file — otherwise they fall back to a default
+        #    token and fail with "No valid Google token found".
+        result = ingest_meet_transcript(file_info, user_email=owner_email_used)
 
         return {
             "status": "ok",
