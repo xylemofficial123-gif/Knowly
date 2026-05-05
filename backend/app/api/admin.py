@@ -2004,3 +2004,103 @@ def debug_meet_transcripts(actor: str = Depends(require_admin)):
         out["per_account"].append(per)
 
     return out
+
+
+class ForceReingestMeetRequest(BaseModel):
+    file_id: str  # The Drive file ID, e.g. "12AtGPED2IGyVD4MGOykLQlIG0yvOZNmguBVjUmJGdtw"
+
+
+@router.post("/force-reingest-meet")
+def force_reingest_meet(req: ForceReingestMeetRequest, actor: str = Depends(require_admin)):
+    """Wipe the existing Document/Chunks for a single Meet transcript and
+    re-run the full Meet ingestion path on it. Useful when:
+      - The transcript was matched + ingested in a prior cycle, but
+      - decision extraction at that time returned 0 decisions (so no
+        ghost-doc DM fired), and now we want a clean re-attempt.
+
+    The fresh ingestion will trigger _maybe_send_meet_ghost_prompts, so
+    if the LLM finds decisions this time, the host gets a Slack DM
+    within seconds.
+    """
+    from app.models import OAuthConnection
+    from app.services.meet_ingestion import (
+        _get_drive_service,
+        ingest_meet_transcript,
+    )
+    from app.services.embeddings import qdrant, COLLECTION
+    from qdrant_client.models import PointIdsList
+
+    file_id = req.file_id.strip()
+    if not file_id:
+        raise HTTPException(status_code=400, detail="file_id is required")
+    source_id = f"meet:{file_id}"
+
+    db = SessionLocal()
+    try:
+        # 1. Find existing document + chunks for this source.
+        doc = db.query(Document).filter(Document.source_id == source_id).first()
+        deleted_chunks = 0
+        deleted_qdrant = 0
+        if doc:
+            chunks = db.query(Chunk).filter(Chunk.document_id == doc.id).all()
+            embedding_ids = [c.embedding_id for c in chunks if c.embedding_id]
+            db.query(Chunk).filter(Chunk.document_id == doc.id).delete(synchronize_session=False)
+            db.query(Document).filter(Document.id == doc.id).delete(synchronize_session=False)
+            db.commit()
+            deleted_chunks = len(chunks)
+            if embedding_ids:
+                try:
+                    qdrant.delete(
+                        collection_name=COLLECTION,
+                        points_selector=PointIdsList(points=embedding_ids),
+                    )
+                    deleted_qdrant = len(embedding_ids)
+                except Exception as e:
+                    logger.warning(f"Qdrant delete failed: {e}")
+
+        # 2. Find which connected account owns/can-see this file. Try
+        #    each in order until one returns the file metadata.
+        conns = db.query(OAuthConnection).filter(OAuthConnection.id.like("google:%")).all()
+        candidate_emails = [c.id[len("google:"):] for c in conns]
+
+        file_info = None
+        owner_email_used = None
+        for email in candidate_emails or [None]:
+            try:
+                service = _get_drive_service(email)
+                file_info = service.files().get(
+                    fileId=file_id,
+                    fields="id, name, mimeType, createdTime, modifiedTime, webViewLink, lastModifyingUser, owners",
+                ).execute()
+                owner_email_used = email
+                break
+            except Exception:
+                continue
+
+        if not file_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"file {file_id} not visible from any connected Google account",
+            )
+
+        # 3. Re-run the full Meet ingestion path on the file. This walks
+        #    chunk_and_store + decision_extractor + ghost-doc emit.
+        result = ingest_meet_transcript(file_info)
+
+        return {
+            "status": "ok",
+            "file_id": file_id,
+            "file_name": file_info.get("name"),
+            "owner_email_used": owner_email_used,
+            "deleted_old_chunks": deleted_chunks,
+            "deleted_old_vectors": deleted_qdrant,
+            "ingest_result": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"force-reingest-meet failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
