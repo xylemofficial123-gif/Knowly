@@ -188,7 +188,7 @@ export default function Home() {
   const runProjectQuery = useCallback(async (project: string, customQuery?: string) => {
     const scopedQuery = customQuery?.trim()
       ? `For ${project} project only: ${customQuery.trim()}`
-      : `Catch me up on the history of the ${project} project.`;
+      : `Summarise the key decisions, rationale, owners, and current status for the ${project} project. Include any reversals or active drift.`;
 
     setProjectCards((prev) => ({
       ...prev,
