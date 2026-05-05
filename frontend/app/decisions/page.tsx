@@ -67,13 +67,26 @@ export default function DecisionsPage() {
   const [driftMsg, setDriftMsg] = useState("");
   const [driftExpanded, setDriftExpanded] = useState(false);
 
-  const fetchDecisions = (status = filter) => {
+  const fetchDecisions = async (status = filter) => {
     setLoading(true);
-    const url = `${API_URL}/api/admin/decisions?status=${status}&limit=100${userEmail ? `&user_email=${encodeURIComponent(userEmail)}` : ""}`;
-    fetch(url)
-      .then((r) => r.json())
-      .then(setData)
-      .finally(() => setLoading(false));
+    try {
+      const token = await getToken();
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      const url = `${API_URL}/api/admin/decisions?status=${status}&limit=100${userEmail ? `&user_email=${encodeURIComponent(userEmail)}` : ""}`;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) {
+        setLoading(false);
+        return;
+      }
+      const d = await r.json();
+      setData(d);
+    } catch {}
+    finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchDecisions(filter); }, [filter, userEmail]);
@@ -132,7 +145,11 @@ export default function DecisionsPage() {
     setExtracting(true);
     setExtractMsg("");
     try {
-      const res = await fetch(`${API_URL}/api/admin/decisions/extract`, { method: "POST" });
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/admin/decisions/extract`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const d = await res.json();
       setExtractMsg(`Done — ${d.decisions_total} decisions in system.`);
       fetchDecisions(filter);
@@ -146,7 +163,10 @@ export default function DecisionsPage() {
   const loadChain = async (id: string) => {
     if (expandedChain === id) { setExpandedChain(null); return; }
     if (!chains[id]) {
-      const res = await fetch(`${API_URL}/api/admin/decisions/${id}/history`);
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/admin/decisions/${id}/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const d = await res.json();
       setChains((prev) => ({ ...prev, [id]: d.chain || [] }));
     }
