@@ -1397,7 +1397,7 @@ def seed_demo_data(actor: str = Depends(require_admin)):
 
             existing = (
                 db.query(DecisionRecord)
-                .filter(DecisionRecord.source_chunk_ids.contains([source_id]))
+                .filter(DecisionRecord.decision == seed["decision"])
                 .first()
             )
             if existing:
