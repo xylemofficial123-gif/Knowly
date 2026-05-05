@@ -13,7 +13,7 @@ import hashlib
 import threading
 from typing import Optional, Any
 
-_TTL_SEC = 60
+_TTL_SEC = 1800
 _MAX_ENTRIES = 256
 
 _lock = threading.Lock()
