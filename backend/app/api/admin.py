@@ -1840,3 +1840,45 @@ def clear_drift_alerts(actor: str = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.delete("/decisions/calendar-cleanup")
+def cleanup_calendar_decisions(actor: str = Depends(require_admin)):
+    """Delete decision records whose source chunks all came from Calendar.
+
+    Calendar events were being mis-classified as decisions in earlier runs
+    (e.g. "Alice will attend Standup"). This endpoint walks every active
+    decision, looks up its source_chunk_ids → parent Document.source, and
+    deletes the row if every linked source is "calendar".
+    """
+    from app.models import Chunk, Document
+    db = SessionLocal()
+    try:
+        all_decisions = db.query(DecisionRecord).all()
+        deleted_ids: list[str] = []
+        for d in all_decisions:
+            chunk_ids = list(d.source_chunk_ids or [])
+            if not chunk_ids:
+                continue
+            # Resolve each chunk_id (UUID string) → Document.source
+            try:
+                rows = (
+                    db.query(Document.source)
+                    .join(Chunk, Chunk.document_id == Document.id)
+                    .filter(Chunk.id.in_(chunk_ids))
+                    .all()
+                )
+            except Exception:
+                rows = []
+            sources = {r[0] for r in rows} if rows else set()
+            if sources == {"calendar"}:
+                deleted_ids.append(str(d.id))
+                db.delete(d)
+        db.commit()
+        return {"status": "ok", "deleted": len(deleted_ids), "ids": deleted_ids}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"calendar-cleanup failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

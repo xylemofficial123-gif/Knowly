@@ -171,15 +171,41 @@ def process_decision(decision: dict, chunk: Chunk, db: Session):
     return "discarded"
 
 
+SKIP_SOURCES_FOR_DECISIONS = {"calendar"}
+"""Sources whose chunks are NEVER decision candidates.
+
+Calendar events ('Alice will attend Standup on Monday') are facts, not
+governance decisions. Letting them flow into decision extraction produces
+'X attends meeting Y' rows in the decision log and creates noise for the
+drift sweep. Calendar content remains queryable via Oracle retrieval; it
+just doesn't pollute the decision audit trail.
+"""
+
+
 def run_extraction_on_all_chunks():
+    from app.models import Document
+
     db: Session = SessionLocal()
     try:
+        # Build doc_id → source map once. Chunks don't carry `source` directly;
+        # it lives on the parent Document row.
+        doc_source_by_id: dict = {
+            str(d.id): (d.source or "")
+            for d in db.query(Document.id, Document.source).all()
+        }
+
         chunks = db.query(Chunk).all()
         processed = 0
         decisions_found = 0
+        skipped_by_source = 0
 
         for chunk in chunks:
             if not chunk.text or len(chunk.text.split()) < 10:
+                continue
+
+            doc_source = doc_source_by_id.get(str(chunk.document_id), "")
+            if doc_source in SKIP_SOURCES_FOR_DECISIONS:
+                skipped_by_source += 1
                 continue
 
             decisions = extract_decisions_from_text(chunk.text)
@@ -194,7 +220,8 @@ def run_extraction_on_all_chunks():
 
         db.commit()
         logger.info(
-            f"Decision extraction complete: {processed} chunks processed, {decisions_found} decisions found"
+            f"Decision extraction complete: processed={processed} "
+            f"decisions={decisions_found} skipped_by_source={skipped_by_source}"
         )
     except Exception as e:
         db.rollback()
