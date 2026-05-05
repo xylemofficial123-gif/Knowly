@@ -272,11 +272,42 @@ def delete_user(email: str, actor_email: str = Depends(require_admin)):
 # ── Group endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/groups")
-def list_groups(limit: int = 100, offset: int = 0):
+def list_groups(
+    limit: int = 100,
+    offset: int = 0,
+    mine: bool = False,
+    actor_email: str = Depends(get_current_user_email),
+):
+    """List groups.
+
+    By default returns every group (used by the admin Groups tab).
+
+    Pass `?mine=true` to filter to groups the requesting user is a member of —
+    used by the Quick Onboarding screen so a new joiner only sees the
+    project(s) they've actually been added to. Workspace admins continue to
+    see all groups even with `?mine=true` so they can preview any project's
+    onboarding view (and demo the feature in front of judges).
+    """
+    from sqlalchemy import func
+    from app.core.acl import get_user_role
+
     db = SessionLocal()
     try:
-        groups = db.query(Group).order_by(Group.created_at.desc()).offset(offset).limit(limit).all()
-        total = db.query(Group).count()
+        query = db.query(Group).order_by(Group.created_at.desc())
+
+        if mine:
+            actor_role = get_user_role(actor_email)
+            if actor_role != "admin":
+                # Inner join — only groups where this user has a membership row
+                member_group_ids = (
+                    db.query(GroupMembership.group_id)
+                    .filter(func.lower(GroupMembership.user_email) == actor_email.lower())
+                    .subquery()
+                )
+                query = query.filter(Group.id.in_(member_group_ids))
+
+        groups = query.offset(offset).limit(limit).all()
+        total = query.count()
         result = []
         for g in groups:
             member_count = db.query(GroupMembership).filter(GroupMembership.group_id == g.id).count()

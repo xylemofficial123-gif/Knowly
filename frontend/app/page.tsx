@@ -148,23 +148,31 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [getToken]);
 
-  // Pull project list from /api/groups so admins can manage what shows
-  // up on Quick Onboarding by creating/deleting groups in the admin panel.
+  // Pull project list from /api/groups?mine=true so a new joiner only sees
+  // projects they've actually been added to. Admins see all projects (the
+  // backend handles that exception). Empty list → render the empty state.
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const token = await getToken();
-        if (!token) return;
-        const res = await fetch(`${API_URL}/api/groups`, {
+        if (!token) {
+          if (!cancelled) setProjectsLoaded(true);
+          return;
+        }
+        const res = await fetch(`${API_URL}/api/groups?mine=true`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setProjectsLoaded(true);
+          return;
+        }
         const data = await res.json();
         const names: string[] = Array.isArray(data?.groups)
           ? data.groups.map((g: any) => g?.name).filter(Boolean)
           : [];
-        if (cancelled || names.length === 0) return;
+        if (cancelled) return;
         setProjects(names);
         setProjectCards((prev) => {
           const next: Record<string, ProjectCardState> = { ...prev };
@@ -182,7 +190,10 @@ export default function Home() {
           }
           return next;
         });
-      } catch {}
+        setProjectsLoaded(true);
+      } catch {
+        if (!cancelled) setProjectsLoaded(true);
+      }
     })();
     return () => { cancelled = true; };
   }, [getToken]);
@@ -402,6 +413,16 @@ Rules:
                 </p>
               </div>
 
+              {projectsLoaded && projects.length === 0 ? (
+                <div className="rounded-3xl border border-dashed border-green-200 bg-green-50/40 p-10 text-center">
+                  <div className="text-3xl mb-3">🌱</div>
+                  <p className="font-bold text-green-900 mb-1">Not assigned to a project yet</p>
+                  <p className="text-sm text-green-700/80 max-w-md mx-auto leading-relaxed">
+                    Ask an admin to add you to a team in the Groups tab. Once you're a member,
+                    you'll see briefings, decisions, and role setup for that project here.
+                  </p>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 {projects.map((project) => (
                   <button
@@ -418,6 +439,7 @@ Rules:
                   </button>
                 ))}
               </div>
+              )}
 
               <section className="bg-white border border-green-100 rounded-[2rem] p-6">
                 <div className="flex items-center justify-between mb-3">
