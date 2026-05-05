@@ -340,11 +340,15 @@ class ResearchAgent(BaseAgent):
 
         answer = generate(prompt, max_tokens=2048)
 
-        # Extract used citations — catches [1], [SOURCE_1], SOURCE_1, etc.
+        # Extract used citations — catches every style the LLM might use:
+        #   [SOURCE_1], SOURCE_1, [1], [2, 3], [Decision Record 04/05/2026, 1]
+        # Pull every \d+ from any [..] block, keep only ones that map to a real source.
         citations = []
-        used_sources = set(re.findall(r"SOURCE_(\d+)", answer))
-        # Also catch plain [N] references the LLM may use
-        used_sources.update(re.findall(r"\[(\d+)\]", answer))
+        used_sources: set[str] = set(re.findall(r"SOURCE_(\d+)", answer))
+        for bracket in re.findall(r"\[([^\]]*)\]", answer):
+            for num in re.findall(r"\d+", bracket):
+                if f"SOURCE_{num}" in citation_map:
+                    used_sources.add(num)
         for num in sorted(used_sources, key=int):
             label = f"SOURCE_{num}"
             if label in citation_map:

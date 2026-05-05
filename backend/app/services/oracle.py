@@ -210,9 +210,15 @@ def synthesise_answer(question: str, chunks_with_scores: list) -> dict:
     answer_text = generate(prompt)
 
     citations = []
-    # Catch [SOURCE_N], SOURCE_N, and bare [N] in case the LLM normalized on its own
-    used_sources = set(re.findall(r"SOURCE_(\d+)", answer_text))
-    used_sources.update(re.findall(r"\[(\d+)\]", answer_text))
+    # Catch every citation style the LLM might produce:
+    #   [SOURCE_3], SOURCE_3, [3], [2, 3], [Decision Record 04/05/2026, 1]
+    # Strategy: pull every \d+ out of any [..] block, plus bare SOURCE_N,
+    # then keep only ones that match a real SOURCE_N in citation_map.
+    used_sources: set[str] = set(re.findall(r"SOURCE_(\d+)", answer_text))
+    for bracket in re.findall(r"\[([^\]]*)\]", answer_text):
+        for num in re.findall(r"\d+", bracket):
+            if f"SOURCE_{num}" in citation_map:
+                used_sources.add(num)
     for num in sorted(used_sources, key=int):
         label = f"SOURCE_{num}"
         if label in citation_map:
