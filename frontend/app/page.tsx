@@ -23,41 +23,6 @@ const ONBOARDING_TASKS = [
   "Run project locally",
 ] as const;
 
-const ROLE_SETUP_CARDS = [
-  { label: "Testing", query: "Role: Testing. List only tool/setup names needed for onboarding QA/Testing." },
-  { label: "Dev", query: "Role: Dev. List only tool/setup names needed for developer onboarding." },
-  { label: "HR", query: "Role: HR. List only tool/setup names needed for HR onboarding." },
-  { label: "PM", query: "Role: PM. List only tool/setup names needed for PM onboarding." },
-] as const;
-
-function extractSetupItems(answer: string): string[] {
-  if (!answer) return [];
-
-  // Try strict JSON first.
-  const fenced = answer.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = (fenced ? fenced[1] : answer).trim();
-  try {
-    const parsed = JSON.parse(candidate);
-    if (Array.isArray(parsed?.setup_items)) {
-      return Array.from(
-        new Set(
-          parsed.setup_items
-            .map((x: any) => String(x).trim())
-            .filter((x: string) => x.length > 1)
-        )
-      );
-    }
-  } catch {}
-
-  // Fallback: extract bullet-like or numbered lines and keep short tool-like items.
-  const lines = answer
-    .split("\n")
-    .map((l) => l.replace(/^\s*[-*•\d.)]+\s*/, "").trim())
-    .filter((l) => l.length > 1 && l.length <= 80)
-    .filter((l) => !/overview|summary|status|people|context|open items/i.test(l));
-
-  return Array.from(new Set(lines)).slice(0, 20);
-}
 
 export default function Home() {
   const { user } = useUser();
@@ -71,14 +36,6 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const [quickOnboardingMode, setQuickOnboardingMode] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const [roleSetupItems, setRoleSetupItems] = useState<string[]>([]);
-  const [roleCardResult, setRoleCardResult] = useState<{ answer: string; citations: any[]; loading: boolean; error: string }>({
-    answer: "",
-    citations: [],
-    loading: false,
-    error: "",
-  });
   // Projects shown on Quick Onboarding are pulled from /api/groups so admins
   // can manage them via the Groups tab. Falls back to a small hardcoded list
   // only for unauthenticated SSR / when the fetch fails.
@@ -274,39 +231,6 @@ export default function Home() {
     }
   }, [selectedProject, projectCards, runProjectQuery]);
 
-  const runRoleSetupQuery = useCallback(async (roleLabel: string, q: string) => {
-    setSelectedRole(roleLabel);
-    setRoleSetupItems([]);
-    setRoleCardResult({ answer: "", citations: [], loading: true, error: "" });
-    try {
-      const strictPrompt = `${q}
-Return ONLY JSON in this exact format:
-{"setup_items":["item 1","item 2"]}
-Rules:
-- setup_items must contain only software/services/accounts/repos/environments a user needs to set up
-- no explanations
-- no people names
-- no headings
-- no extra keys`;
-      const data = await askOracle(strictPrompt, []);
-      const setupItems = extractSetupItems(data.answer || "");
-      setRoleCardResult({
-        answer: data.answer || "",
-        citations: data.citations || [],
-        loading: false,
-        error: "",
-      });
-      setRoleSetupItems(setupItems);
-    } catch (e: any) {
-      setRoleCardResult({
-        answer: "",
-        citations: [],
-        loading: false,
-        error: e?.message || "Failed to load role setup.",
-      });
-    }
-  }, [askOracle]);
-
   const handleAsk = useCallback(async (explicitQuery?: string, cachedData?: any) => {
     const q = explicitQuery || question;
     if (!q.trim() || loading) return;
@@ -364,7 +288,6 @@ Rules:
     const handleQuickOnboarding = () => {
       setQuickOnboardingMode(true);
       setSelectedProject(null);
-      setSelectedRole(null);
       setError("");
     };
     const handleNewQuery = () => {
@@ -488,55 +411,6 @@ Rules:
                   </>
                 ) : (
                   <p className="text-sm text-gray-500 font-medium">Select a project to start tracking onboarding progress.</p>
-                )}
-              </section>
-
-              <section className="space-y-4">
-                <h3 className="text-xl font-black text-foreground">Role setup</h3>
-                <p className="text-sm text-gray-500 font-medium">
-                  Pick your role to see required tools, setup, and what the team is using.
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {ROLE_SETUP_CARDS.map((role) => (
-                    <button
-                      key={role.label}
-                      onClick={() => runRoleSetupQuery(role.label, role.query)}
-                      className={`h-14 rounded-xl border text-sm font-black transition-all ${
-                        selectedRole === role.label
-                          ? "bg-green-50 border-green-300 text-green-800"
-                          : "bg-white border-gray-200 text-foreground hover:bg-gray-50"
-                      }`}
-                    >
-                      {role.label}
-                    </button>
-                  ))}
-                </div>
-                {selectedRole && (
-                  <div className="bg-white border border-gray-100 rounded-2xl p-4">
-                    <p className="text-[11px] font-bold uppercase tracking-widest text-green-700 mb-3">
-                      {selectedRole} setup
-                    </p>
-                    {roleCardResult.loading ? (
-                      <div className="text-sm font-semibold text-gray-500">Loading setup guide...</div>
-                    ) : roleCardResult.error ? (
-                      <div className="text-sm font-semibold text-red-600">⚠️ {roleCardResult.error}</div>
-                    ) : roleSetupItems.length > 0 ? (
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap gap-2">
-                          {roleSetupItems.map((item) => (
-                            <span
-                              key={item}
-                              className="inline-flex items-center px-3 py-1.5 rounded-lg border border-green-100 bg-green-50 text-xs font-semibold text-green-900"
-                            >
-                              {item}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-500">No setup items found for this role.</p>
-                    )}
-                  </div>
                 )}
               </section>
 
