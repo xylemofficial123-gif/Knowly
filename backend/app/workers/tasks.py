@@ -546,14 +546,32 @@ def sweep_decision_drift(self, similarity_threshold: float = 0.78, max_pairs_to_
             d_a = decision_by_id[a_id]
             d_b = decision_by_id[b_id]
             prompt = (
-                "You compare company decisions for contradiction or drift. "
-                "Two decisions are 'contradictory' when they specify different "
-                "answers to the same question (e.g. 'weekly oncall' vs 'biweekly "
-                "oncall'). Two decisions on different topics are NOT "
-                "contradictory even if they share words.\n\n"
+                "You judge whether two company DECISIONS contradict each other. "
+                "Reply 'yes' ONLY if both decisions answer the SAME governance "
+                "question with MUTUALLY EXCLUSIVE answers — i.e. acting on one "
+                "would violate the other.\n\n"
+                "Reply 'no' for everything else, including:\n"
+                "- Independent facts about the same event or topic "
+                "(e.g. 'Alice attends meeting X' vs 'Bob attends meeting X' — "
+                "both can be true at the same time).\n"
+                "- Two decisions about different aspects of one project "
+                "(e.g. 'use Postgres' vs 'use Redis for caching' — both compatible).\n"
+                "- One decision refining the scope of another "
+                "(e.g. 'require 2 approvals' vs 'exempt config-only changes' — "
+                "the second narrows the first, not contradicts).\n"
+                "- Calendar attendance, action item assignment, document "
+                "ownership, meeting-minute extracts — these are facts, not "
+                "governance decisions, so they cannot contradict.\n\n"
+                "Reply 'yes' for clear governance contradictions like:\n"
+                "- 'weekly on-call rotation' vs 'bi-weekly on-call rotation' "
+                "(answers the question of on-call cadence).\n"
+                "- 'annual-only contracts' vs 'add monthly billing tier' "
+                "(answers the question of billing structure).\n"
+                "- 'use Stripe as payment provider' vs 'use Razorpay as "
+                "payment provider' (answers the question of vendor).\n\n"
                 f"Decision A: {d_a.decision}\nRationale: {d_a.rationale or 'n/a'}\n\n"
                 f"Decision B: {d_b.decision}\nRationale: {d_b.rationale or 'n/a'}\n\n"
-                "Reply with strict JSON only: "
+                "Reply with strict JSON only, no markdown: "
                 '{"contradicts": "yes" | "no", "reason": "<one short sentence>"}'
             )
             try:

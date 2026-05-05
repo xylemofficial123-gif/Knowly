@@ -1820,3 +1820,23 @@ def update_drift_alert(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.delete("/drift-sweep/alerts")
+def clear_drift_alerts(actor: str = Depends(require_admin)):
+    """Wipe every drift alert. Used when re-running the sweep with an
+    improved contradiction prompt — old false-positive alerts get cleared
+    so the next sweep starts from a clean slate."""
+    from app.models import DecisionDriftAlert
+
+    db = SessionLocal()
+    try:
+        n = db.query(DecisionDriftAlert).delete(synchronize_session=False)
+        db.commit()
+        return {"status": "ok", "deleted": n}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"clear_drift_alerts failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
