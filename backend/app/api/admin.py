@@ -1415,6 +1415,44 @@ def seed_demo_data(actor: str = Depends(require_admin)):
                 "Decided 25/04/2026."
             ),
         },
+        # ── Deliberate drift seeds — give the drift-sweep something to surface
+        # on stage. These are recorded as separate active decisions because the
+        # per-write reversal check didn't catch them at extraction time (e.g.
+        # different wording, different author, weeks apart). The periodic
+        # sweep should flag them as contradicting the earlier active decisions
+        # listed above.
+        {
+            "slug": "biweekly-oncall-pivot",
+            "decision": "Move engineering on-call from weekly rotation to bi-weekly",
+            "rationale": "Weekly cadence was burning out engineers; new joiners need more handoff time",
+            "options": ["Keep weekly", "Monthly rotation"],
+            "decided_at": _dt.datetime(2026, 5, 3, 11, 30, 0),
+            "title": "Decision: Bi-weekly on-call cadence",
+            "text": (
+                "Reversing course on engineering on-call cadence: we're moving from the weekly rotation we "
+                "set in March to a bi-weekly rotation. The weekly cadence didn't account for incident "
+                "carry-over — engineers were starting their on-call week mid-incident from the previous "
+                "rotation, which created handoff confusion and burnout. Two weeks gives enough buffer to "
+                "fully resolve and document an incident before passing the pager. We considered monthly "
+                "rotation but rejected it — too much context decays in a month. Decided 03/05/2026."
+            ),
+        },
+        {
+            "slug": "monthly-billing-smb",
+            "group": "Orchard",
+            "decision": "Add monthly billing tier for SMB customers",
+            "rationale": "Self-serve trial conversion stalls at the annual-contract checkout for SMBs under 20 employees",
+            "options": ["Quarterly billing", "Stay annual-only"],
+            "decided_at": _dt.datetime(2026, 5, 4, 16, 0, 0),
+            "title": "Decision: Monthly billing tier for SMB",
+            "text": (
+                "Adding a monthly billing option for the SMB segment. Self-serve trial-to-paid conversion "
+                "data from the last 90 days shows we lose ~38% of qualified SMB trials at the annual-commit "
+                "checkout step. A monthly tier at 1.2x the equivalent annual price gives the customer "
+                "optionality and still nudges them toward annual over time. Mid-market and enterprise stay "
+                "annual-only. Decided 04/05/2026."
+            ),
+        },
     ]
 
     # Project-scoped seeds. These create the appearance of three internal
